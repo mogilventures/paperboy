@@ -1,4 +1,5 @@
 """Supabase-based state management for Paperboy."""
+# Updated: 2025-11-13 - Retention policy changes
 import os
 from typing import Optional, List, Dict, Any
 from datetime import datetime, timedelta
@@ -31,10 +32,10 @@ class TaskStateManager:
             'message': status.message,
             'result': status.result,
             'user_info': user_info,
-            'created_at': datetime.now().isoformat(),
-            'expires_at': (datetime.now() + timedelta(hours=24)).isoformat()
+            'created_at': datetime.now().isoformat()
+            # expires_at uses database default (1 year)
         }
-        
+
         self.client.table(self.table).insert(data).execute()
         logfire.info(f"Task {task_id} created")
     
@@ -85,15 +86,21 @@ class TaskStateManager:
         
         return None
     
-    async def cleanup_old_tasks(self, max_age_hours: int = 24) -> int:
-        """Remove expired tasks."""
+    async def cleanup_old_tasks(self, max_age_hours: int = 168) -> int:
+        """Remove expired tasks, but preserve completed digests.
+
+        Only deletes failed/pending tasks older than max_age_hours.
+        Completed digests are kept indefinitely per retention policy.
+        Default: 168 hours (1 week) for failed tasks.
+        """
         cutoff = (datetime.now() - timedelta(hours=max_age_hours)).isoformat()
-        
-        response = self.client.table(self.table).delete().lt('created_at', cutoff).execute()
-        
+
+        # Only delete non-completed tasks
+        response = self.client.table(self.table).delete().lt('created_at', cutoff).neq('status', 'completed').execute()
+
         deleted_count = len(response.data) if response.data else 0
-        logfire.info(f"Cleaned up {deleted_count} old tasks")
-        
+        logfire.info(f"Cleaned up {deleted_count} old non-completed tasks (completed digests preserved)")
+
         return deleted_count
     
     async def get_recent_tasks(self, limit: int = 10) -> List[Dict[str, Any]]:
@@ -108,10 +115,10 @@ class TaskStateManager:
             'source_date': source_date,
             'status': 'pending',
             'callback_url': callback_url,
-            'created_at': datetime.now().isoformat(),
-            'expires_at': (datetime.now() + timedelta(hours=24)).isoformat()
+            'created_at': datetime.now().isoformat()
+            # expires_at uses database default (if configured on fetch_tasks table)
         }
-        
+
         self.client.table('fetch_tasks').insert(data).execute()
         logfire.info(f"Fetch task {task_id} created for date {source_date}")
     
@@ -167,7 +174,7 @@ class TaskStateManager:
         self.client.table(self.table).update(data).eq('task_id', task_id).execute()
         logfire.info(f"Task {task_id} updated to status {status.status.value} with source_date {source_date}")
     
-    async def create_task_with_source_date(self, task_id: str, status: DigestStatus, user_info: Dict[str, Any] = None, source_date: str = None, digest_type: str = None) -> None:
+    async def create_task_with_source_date(self, task_id: str, status: DigestStatus, user_info: Dict[str, Any] = None, source_date: str = None, digest_type: str = None, callback_url: str = None) -> None:
         """Create a new task with source_date and digest_type fields."""
         data = {
             'task_id': task_id,
@@ -175,15 +182,18 @@ class TaskStateManager:
             'message': status.message,
             'result': status.result,
             'user_info': user_info,
-            'created_at': datetime.now().isoformat(),
-            'expires_at': (datetime.now() + timedelta(hours=24)).isoformat()
+            'created_at': datetime.now().isoformat()
+            # expires_at uses database default (1 year)
         }
-        
+
         if source_date:
             data['source_date'] = source_date
-        
+
         if digest_type:
             data['digest_type'] = digest_type
-        
+
+        if callback_url:
+            data['callback_url'] = callback_url
+
         self.client.table(self.table).insert(data).execute()
         logfire.info(f"Task {task_id} created with source_date {source_date} and digest_type {digest_type}")

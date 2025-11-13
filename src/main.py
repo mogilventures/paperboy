@@ -323,7 +323,8 @@ async def generate_digest(
         DigestStatus(status=TaskStatus.PENDING, message="Task created"),
         user_info=user_info,
         source_date=request.source_date,
-        digest_type=digest_type
+        digest_type=digest_type,
+        callback_url=str(request.callback_url) if request.callback_url else None
     )
     
     # Add task to background with request tracking

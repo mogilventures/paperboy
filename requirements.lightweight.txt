@@ -21,3 +21,4 @@ tenacity==9.0.0  # Add for retry logic
 
 # Supabase integration
 supabase==2.11.0  # For state management and caching
+realtime==2.0.0  # Pin to avoid pip backtracking during dependency resolution
