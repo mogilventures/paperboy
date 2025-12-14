@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field, ValidationError
 from datetime import datetime
 
 from .config import settings
-from .models import RankedArticle, ArticleAnalysis
+from .models import RankedArticle, ArticleAnalysis, ContentType, DigestEmailData, DigestStats, DigestArticle, HighlightItem
 
 # Structured output schemas for ranking
 class ArticleRanking(BaseModel):
@@ -1300,4 +1300,211 @@ Create a cohesive HTML digest that tells a story about what's important for this
         else:
             return "Save for later reference"
 
-    
+    # =====================================================
+    # Step 1: Python Email Templates - New Methods
+    # =====================================================
+
+    async def _generate_highlights(
+        self,
+        summaries: List[Dict[str, Any]],
+        user_info: Dict[str, Any],
+        max_highlights: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        Generate highlights for the digest.
+
+        Tries LLM-based generation first, falls back to deterministic extraction.
+        Returns list of dicts with: title, insight, type
+        """
+        # Sort by relevance score descending
+        sorted_summaries = sorted(
+            summaries,
+            key=lambda x: int(x.get('relevance_score', 0) or 0),
+            reverse=True
+        )
+
+        # Take top N for highlights
+        top_summaries = sorted_summaries[:max_highlights]
+
+        # Try LLM-based highlight generation
+        try:
+            system_prompt = """You are creating highlight bullets for a research digest.
+
+For each item provided, create a concise highlight with:
+- title: The article title (max 80 chars, truncate if needed)
+- insight: A one-line key takeaway or insight (max 150 chars)
+- type: Either "paper" or "news"
+
+Return valid JSON array only, no markdown, no explanation.
+Example: [{"title": "AI Breakthrough", "insight": "New model achieves SOTA on benchmarks", "type": "paper"}]"""
+
+            user_prompt = f"""Create {len(top_summaries)} highlights from these articles:
+
+{json.dumps([{
+    'title': s.get('title', 'Unknown')[:80],
+    'type': s.get('type', 'paper'),
+    'key_takeaway': s.get('key_takeaway', s.get('summary', ''))[:200],
+    'relevance_score': s.get('relevance_score', 0)
+} for s in top_summaries], indent=2)}
+
+User context: {user_info.get('name', 'User')}, {user_info.get('title', 'Researcher')}
+Focus: {user_info.get('goals', 'Research')}"""
+
+            response = await self._call_llm(
+                system_prompt,
+                user_prompt,
+                temperature=0.3,
+                max_tokens=1000
+            )
+
+            # Parse JSON response
+            response = response.strip()
+            if response.startswith('```'):
+                response = response.split('```')[1]
+                if response.startswith('json'):
+                    response = response[4:]
+            response = response.strip()
+
+            highlights = json.loads(response)
+            if isinstance(highlights, list) and len(highlights) > 0:
+                logfire.info(f"Generated {len(highlights)} highlights via LLM")
+                return highlights[:max_highlights]
+
+        except Exception as e:
+            logfire.warning(f"LLM highlight generation failed, using fallback: {str(e)}")
+
+        # Deterministic fallback: extract from summaries directly
+        highlights = []
+        for s in top_summaries:
+            title = (s.get('title', 'Unknown') or 'Unknown')[:80]
+            insight = (
+                s.get('key_takeaway') or
+                s.get('recommended_action') or
+                s.get('summary', '')
+            )[:150]
+            content_type = s.get('type', 'paper')
+
+            highlights.append({
+                'title': title,
+                'insight': insight if insight else f"Score: {s.get('relevance_score', 0)}/100",
+                'type': content_type
+            })
+
+        logfire.info(f"Generated {len(highlights)} highlights via fallback")
+        return highlights
+
+    async def create_digest_data(
+        self,
+        summaries: List[Dict[str, Any]],
+        user_info: Dict[str, Any],
+    ) -> DigestEmailData:
+        """
+        Build a stable DigestEmailData contract from summaries.
+
+        This is the data structure passed to Jinja2 templates for rendering.
+        Does NOT generate HTML - only structures the data.
+        """
+        current_date = datetime.now().strftime('%A, %B %d, %Y')
+
+        # Separate and count content types
+        papers = [s for s in summaries if s.get('type') == 'paper']
+        news = [s for s in summaries if s.get('type') == 'news']
+
+        # Calculate stats
+        stats = DigestStats(
+            paper_count=len(papers),
+            news_count=len(news),
+            reading_time_minutes=(len(papers) * 5) + (len(news) * 3),
+            papers_processed=len(summaries) * 4,  # Approximate papers reviewed
+            articles_selected=len(summaries),
+            time_saved_minutes=len(summaries) * 15,
+        )
+
+        # Generate highlights
+        highlights_raw = await self._generate_highlights(summaries, user_info)
+
+        def importance_label(score: int) -> str:
+            """Map relevance score to importance label."""
+            if score >= 90:
+                return "CRITICAL"
+            if score >= 80:
+                return "IMPORTANT"
+            return "NOTEWORTHY"
+
+        def to_digest_article(s: Dict[str, Any]) -> DigestArticle:
+            """Convert summary dict to DigestArticle."""
+            score = int(s.get('relevance_score', 0) or 0)
+            content_type = ContentType.NEWS if s.get('type') == 'news' else ContentType.PAPER
+
+            # Get URL with fallbacks
+            url = (
+                s.get('abstract_url') or
+                s.get('url') or
+                s.get('article_url') or
+                'https://example.com'
+            )
+            # Convert HttpUrl to string if needed
+            url = str(url)
+
+            # Get PDF URL for papers
+            pdf_url = s.get('pdf_url')
+            if pdf_url:
+                pdf_url = str(pdf_url)
+
+            return DigestArticle(
+                title=s.get('title', 'Unknown'),
+                type=content_type,
+                relevance_score=min(100, max(0, score)),  # Clamp to valid range
+                importance_label=importance_label(score),
+                summary=(s.get('summary') or '')[:300],
+                why_relevant=(s.get('why_relevant') or s.get('relevance_to_user') or '')[:200],
+                key_takeaway=(s.get('key_takeaway') or s.get('recommended_action') or s.get('action_item') or '')[:150],
+                article_url=url,
+                pdf_url=pdf_url,
+                source=s.get('source'),
+            )
+
+        # Categorize articles by relevance score
+        directly_relevant: List[DigestArticle] = []
+        expand_knowledge: List[DigestArticle] = []
+        quick_scan: List[DigestArticle] = []
+
+        for s in summaries:
+            article = to_digest_article(s)
+            if article.relevance_score >= 80:
+                directly_relevant.append(article)
+            elif article.relevance_score >= 60:
+                expand_knowledge.append(article)
+            else:
+                quick_scan.append(article)
+
+        # Sort each category by score descending
+        directly_relevant.sort(key=lambda x: x.relevance_score, reverse=True)
+        expand_knowledge.sort(key=lambda x: x.relevance_score, reverse=True)
+        quick_scan.sort(key=lambda x: x.relevance_score, reverse=True)
+
+        # Convert highlights to HighlightItem objects
+        highlights = []
+        for h in (highlights_raw or [])[:5]:
+            try:
+                content_type = ContentType.NEWS if h.get('type') == 'news' else ContentType.PAPER
+                highlights.append(HighlightItem(
+                    title=str(h.get('title', 'Unknown'))[:80],
+                    insight=str(h.get('insight', ''))[:150],
+                    type=content_type
+                ))
+            except Exception as e:
+                logfire.warning(f"Failed to create HighlightItem: {e}")
+                continue
+
+        return DigestEmailData(
+            date=current_date,
+            user_name=user_info.get('name', 'User'),
+            user_title=user_info.get('title', 'Researcher'),
+            stats=stats,
+            highlights=highlights,
+            directly_relevant=directly_relevant,
+            expand_knowledge=expand_knowledge,
+            quick_scan=quick_scan,
+        )
+

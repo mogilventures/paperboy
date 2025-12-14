@@ -16,7 +16,14 @@ class Settings(BaseSettings):
     ranking_input_max_articles: int = Field(default=20, validation_alias='RANKING_INPUT_MAX_ARTICLES', description="Maximum number of raw articles to send to the LLM for the ranking step.")
     
     use_lightweight: bool = Field(default=True, validation_alias='USE_LIGHTWEIGHT', description="Use lightweight version without Playwright")
-    
+
+    # Email Template Feature Flag (Step 1: Python Templates)
+    use_python_email_templates: bool = Field(
+        default=True,
+        validation_alias='USE_PYTHON_EMAIL_TEMPLATES',
+        description='Render final digest via Jinja2 templates instead of LLM HTML generation'
+    )
+
     logfire_token: Optional[str] = Field(default=None, validation_alias='LOGFIRE_TOKEN', description="Logfire token for monitoring")
     
     # News API Configuration

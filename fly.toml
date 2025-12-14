@@ -32,6 +32,7 @@ primary_region = "ord"  # Change to your preferred region
 [env]
   USE_LIGHTWEIGHT = "true"
   USE_SUPABASE = "true"
+  USE_PYTHON_EMAIL_TEMPLATES = "true"
   NEWS_ENABLED = "true"
   LOG_LEVEL = "INFO"
   OPENAI_MODEL = "gpt-4o-mini"

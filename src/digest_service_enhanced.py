@@ -12,6 +12,7 @@ import json
 
 from .models import TaskStatus, DigestStatus, RankedArticle, ArticleAnalysis, ContentType
 from .llm_client import LLMClient
+from .email_renderer import render_digest_html
 from .fetcher_lightweight import ArxivFetcher
 from .state_supabase import TaskStateManager
 from .config import settings
@@ -1327,7 +1328,34 @@ News Articles to rank:
         summaries: List[Dict[str, Any]],
         user_info: Dict[str, Any]
     ) -> str:
-        """Generate final HTML digest from individual summaries."""
+        """Generate final HTML digest from individual summaries.
+
+        Uses Jinja2 templates when USE_PYTHON_EMAIL_TEMPLATES=true (default),
+        otherwise falls back to LLM-generated HTML.
+        """
+        # Step 1: Python Email Templates - Use Jinja2 rendering when enabled
+        if settings.use_python_email_templates:
+            logfire.info("Using Python email templates (Jinja2) for digest rendering")
+            try:
+                # Build structured data from summaries
+                digest_data = await self.llm_client.create_digest_data(summaries, user_info)
+
+                # Render HTML via Jinja2 template
+                html = render_digest_html(digest_data)
+
+                logfire.info(
+                    "Successfully rendered digest via Jinja2 template",
+                    html_length=len(html),
+                    article_count=len(summaries)
+                )
+                return html
+
+            except Exception as e:
+                logfire.error(f"Template rendering failed, falling back to LLM: {str(e)}")
+                # Fall through to LLM-based generation as backup
+
+        # Original LLM-based HTML generation (fallback or when feature flag is disabled)
+        logfire.info("Using LLM-based HTML generation for digest")
         try:
             breaker = self.circuit_breakers.get('openai')
             return await breaker.call(

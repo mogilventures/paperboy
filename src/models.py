@@ -139,6 +139,53 @@ class UserContext(BaseModel):
     news_interest: Optional[str] = Field(None, description="Specific topic of interest for news articles")
 
 
+# =====================================================
+# Email Template Data Models (Step 1: Python Templates)
+# =====================================================
+
+class DigestStats(BaseModel):
+    """Statistics for the digest email."""
+    paper_count: int = 0
+    news_count: int = 0
+    reading_time_minutes: int = 0
+    papers_processed: int = 0
+    articles_selected: int = 0
+    time_saved_minutes: int = 0
+
+
+class HighlightItem(BaseModel):
+    """A single highlight item for the digest header."""
+    title: str = Field(..., max_length=80)
+    insight: str = Field(..., max_length=150)
+    type: ContentType
+
+
+class DigestArticle(BaseModel):
+    """A single article in the digest email."""
+    title: str
+    type: ContentType
+    relevance_score: int = Field(..., ge=0, le=100)
+    importance_label: str  # CRITICAL / IMPORTANT / NOTEWORTHY
+    summary: str = Field(default="", max_length=300)
+    why_relevant: str = Field(default="", max_length=200)
+    key_takeaway: str = Field(default="", max_length=150)
+    article_url: str  # Using str instead of HttpUrl for flexibility with various URL formats
+    pdf_url: Optional[str] = None
+    source: Optional[str] = None
+
+
+class DigestEmailData(BaseModel):
+    """Complete data contract for rendering digest emails via Jinja2 templates."""
+    date: str
+    user_name: str
+    user_title: str
+    stats: DigestStats
+    highlights: List[HighlightItem] = Field(default_factory=list, max_length=5)
+    directly_relevant: List[DigestArticle] = Field(default_factory=list)
+    expand_knowledge: List[DigestArticle] = Field(default_factory=list)
+    quick_scan: List[DigestArticle] = Field(default_factory=list)
+
+
 class AgentStateModel(BaseModel):
     """Model for agent state persistence (structure based on Archon's suggestion)"""
     last_processed_articles: Dict[str, RankedArticle] = Field(default_factory=dict)

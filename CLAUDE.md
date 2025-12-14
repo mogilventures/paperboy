@@ -244,7 +244,6 @@ Production containers implement:
 - The archived full implementation with Playwright/crawl4ai is in `archived/`
 - **Missing Supabase Schema**: The deployment mentions `supabase_setup.sql` but this file doesn't exist - you'll need to create tables manually (including `daily_sources` and `fetch_tasks` for the fetch service)
 - **Pipedream Integration**: There's a webhook integration in `pipedream/trigger-generate-digest.js` for batch user processing
-- **Architecture Refactor**: See `DIGEST_REFACTOR_PLAN.md` for planned improvements to separate ranking and enhance content extraction
 
 ### Common Development Tasks
 

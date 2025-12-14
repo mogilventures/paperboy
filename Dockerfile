@@ -31,7 +31,8 @@ RUN groupadd --system --gid 10001 app && \
 
 # Copy application files with strict permissions
 COPY --chown=app:app src/ /app/src/
-RUN chmod -R 550 /app/src  # Read and execute only
+COPY --chown=app:app templates/ /app/templates/
+RUN chmod -R 550 /app/src /app/templates  # Read and execute only
 
 # Mount points for config and data
 RUN mkdir -p /app/config /app/data && \
