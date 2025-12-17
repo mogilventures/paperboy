@@ -13,6 +13,8 @@ import logfire
 from jinja2 import Environment, FileSystemLoader, select_autoescape, TemplateNotFound
 
 from .models import DigestEmailData
+from .email_theme import THEME
+from .config import settings
 
 # Template directory relative to this file
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates" / "email"
@@ -31,8 +33,29 @@ def _get_env() -> Environment:
             trim_blocks=True,
             lstrip_blocks=True,
         )
+        # Make theme tokens available to all templates/macros.
+        _env.globals["theme"] = THEME
         logfire.info(f"Initialized Jinja2 environment with templates from: {TEMPLATES_DIR}")
     return _env
+
+
+def _inline_css_if_enabled(html: str) -> str:
+    """
+    Inline CSS for better compatibility across email clients.
+    Feature-flagged via settings.inline_email_css.
+    """
+    if not getattr(settings, "inline_email_css", False):
+        return html
+
+    try:
+        # premailer is optional; keep rendering working even if it's not installed.
+        from premailer import transform  # type: ignore
+
+        return transform(html)
+    except Exception as e:
+        # If inlining fails, fall back to raw HTML.
+        logfire.warning(f"CSS inlining failed, returning non-inlined HTML: {e}")
+        return html
 
 
 def render_digest_html(digest: DigestEmailData) -> str:
@@ -58,6 +81,7 @@ def render_digest_html(digest: DigestEmailData) -> str:
         digest_dict = digest.model_dump()
 
         html = template.render(**digest_dict)
+        html = _inline_css_if_enabled(html)
 
         logfire.info(
             "Rendered digest HTML",

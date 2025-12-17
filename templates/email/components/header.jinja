@@ -1,0 +1,24 @@
+{% macro render_header(date, user_name, user_title, stats) -%}
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%;">
+    <tr>
+      <td align="center" style="padding: 0 0 {{ theme.spacing['16'] }} 0;">
+        <div style="font-family: {{ theme.type.font_heading }}; font-size: {{ theme.type.sizes.h1 }}; line-height: {{ theme.type.line_height.tight }}; font-weight: 900; letter-spacing: -0.02em; text-align: center;">
+          <span style="color: {{ theme.colors.newsprint_red }};">P</span>aperboy Digest
+        </div>
+        <div class="email-muted" style="margin-top: {{ theme.spacing['6'] }}; font-family: {{ theme.type.font_mono }}; font-size: {{ theme.type.sizes.xs }}; text-align: center;">
+          {{ date }}
+        </div>
+        <div class="email-muted" style="margin-top: {{ theme.spacing['8'] }}; font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; text-align: center;">
+          Personalized for <strong class="email-text">{{ user_name }}</strong>{% if user_title %}, {{ user_title }}{% endif %}
+        </div>
+        <div class="email-muted" style="margin-top: {{ theme.spacing['8'] }}; font-family: {{ theme.type.font_mono }}; font-size: {{ theme.type.sizes.xs }}; text-align: center;">
+          {{ stats.paper_count }} Papers &bull; {{ stats.news_count }} News Articles &bull; {{ stats.reading_time_minutes }} min read
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td class="email-border" style="border-bottom: 1px solid {{ theme.colors.border }}; padding-bottom: {{ theme.spacing['12'] }};"></td>
+    </tr>
+  </table>
+{%- endmacro %}
+

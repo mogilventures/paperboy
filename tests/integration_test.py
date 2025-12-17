@@ -1,6 +1,16 @@
 #!/usr/bin/env python3
 # test_script.py
 
+"""
+Integration script (not a pytest test).
+
+This file is kept for manual runs, but should not be collected by pytest.
+"""
+
+import pytest
+
+pytest.skip("integration script; run manually, not under pytest", allow_module_level=True)
+
 import asyncio
 import json
 import os

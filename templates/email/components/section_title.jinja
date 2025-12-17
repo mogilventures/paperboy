@@ -1,0 +1,15 @@
+{% macro section_title(text) -%}
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; margin-top: {{ theme.spacing['24'] }};">
+    <tr>
+      <td style="padding: 0 0 {{ theme.spacing['8'] }} 0;">
+        <div style="font-family: {{ theme.type.font_heading }}; font-size: {{ theme.type.sizes.h2 }}; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;">
+          {{ text }}
+        </div>
+      </td>
+    </tr>
+    <tr>
+      <td class="email-border" style="border-bottom: 1px solid {{ theme.colors.border }}; padding-bottom: {{ theme.spacing['12'] }};"></td>
+    </tr>
+  </table>
+{%- endmacro %}
+

@@ -25,6 +25,7 @@ realtime==2.0.0  # Pin to avoid pip backtracking during dependency resolution
 
 # Email templating
 jinja2>=3.1.0
+premailer>=3.10.0
 
 # Testing
 pytest>=8.0.0

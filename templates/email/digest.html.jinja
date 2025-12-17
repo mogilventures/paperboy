@@ -1,268 +1,75 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Your Research Digest - {{ date }}</title>
-    <style>
-        body {
-            font-family: Georgia, Times, serif;
-            line-height: 1.6;
-            color: #000000;
-            background-color: #ffffff;
-            margin: 0;
-            padding: 20px;
-            max-width: 600px;
-            margin: 0 auto;
-        }
+{% extends "layout.html.jinja" %}
 
-        h1 {
-            font-size: 28px;
-            font-weight: bold;
-            margin: 0 0 5px 0;
-            color: #000000;
-            text-align: center;
-            border-bottom: 3px solid #000000;
-            padding-bottom: 10px;
-        }
+{% from "components/header.jinja" import render_header %}
+{% from "components/section_title.jinja" import section_title %}
+{% from "components/article.jinja" import render_article %}
+{% from "components/footer.jinja" import render_footer %}
 
-        h2 {
-            font-size: 18px;
-            font-weight: bold;
-            margin: 30px 0 15px 0;
-            color: #000000;
-            border-bottom: 1px solid #cccccc;
-            padding-bottom: 5px;
-        }
+{% block title %}Paperboy Digest - {{ date }}{% endblock %}
 
-        h3 {
-            font-size: 16px;
-            font-weight: bold;
-            margin: 20px 0 10px 0;
-            color: #000000;
-        }
+{% block preheader %}
+{{ stats.paper_count }} papers, {{ stats.news_count }} news, {{ stats.reading_time_minutes }} min read — personalized for {{ user_name }}.
+{% endblock %}
 
-        p {
-            margin: 10px 0;
-            font-size: 14px;
-        }
+{% block content %}
+  {{ render_header(date, user_name, user_title, stats) }}
 
-        .header {
-            text-align: center;
-            margin-bottom: 30px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid #000000;
-        }
+  {% if highlights and highlights|length > 0 %}
+    {{ section_title("Today's Highlights") }}
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; margin-top: {{ theme.spacing['12'] }};">
+      {% for h in highlights %}
+        <tr>
+          <td style="padding: {{ theme.spacing['6'] }} 0; font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; line-height: {{ theme.type.line_height.normal }};">
+            <span style="color: {{ theme.colors.newsprint_red }}; font-weight: 900;">•</span>
+            <strong>{{ h.title }}:</strong>
+            {{ h.insight }}
+          </td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% endif %}
 
-        .date {
-            font-size: 12px;
-            color: #666666;
-            margin: 5px 0;
-        }
+  {% if directly_relevant and directly_relevant|length > 0 %}
+    {{ section_title("Directly relevant to your work") }}
+    {% for a in directly_relevant %}
+      {{ render_article(a) }}
+    {% endfor %}
+  {% endif %}
 
-        .subtitle {
-            font-size: 14px;
-            color: #666666;
-            margin: 10px 0;
-        }
+  {% if expand_knowledge and expand_knowledge|length > 0 %}
+    {{ section_title("Expand your knowledge") }}
+    {% for a in expand_knowledge %}
+      {{ render_article(a) }}
+    {% endfor %}
+  {% endif %}
 
-        .stats {
-            font-size: 12px;
-            color: #666666;
-            margin: 15px 0;
-        }
-
-        .section {
-            margin: 30px 0;
-        }
-
-        .article {
-            margin: 25px 0;
-            padding: 15px 0;
-            border-bottom: 1px solid #eeeeee;
-        }
-
-        .article-title {
-            font-size: 16px;
-            font-weight: bold;
-            margin: 0 0 8px 0;
-            color: #000000;
-        }
-
-        .article-meta {
-            font-size: 11px;
-            color: #666666;
-            margin: 5px 0;
-        }
-
-        .summary {
-            font-size: 14px;
-            margin: 10px 0;
-            color: #333333;
-        }
-
-        .relevance {
-            font-size: 13px;
-            margin: 10px 0;
-            padding: 10px;
-            background-color: #f9f9f9;
-            border-left: 3px solid #cccccc;
-        }
-
-        .actions {
-            margin: 15px 0;
-        }
-
-        .actions a {
-            color: #000000;
-            text-decoration: underline;
-            font-size: 13px;
-            margin-right: 15px;
-        }
-
-        .quick-item {
-            margin: 8px 0;
-            font-size: 13px;
-            padding: 5px 0;
-        }
-
-        .footer {
-            margin-top: 40px;
-            padding-top: 20px;
-            border-top: 1px solid #cccccc;
-            text-align: center;
-            font-size: 12px;
-            color: #666666;
-        }
-
-        .score {
-            font-size: 11px;
-            color: #666666;
-            font-weight: normal;
-        }
-
-        .highlight-item {
-            margin: 8px 0;
-            font-size: 14px;
-        }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>PAPERBOY DIGEST</h1>
-        <div class="date">{{ date }}</div>
-        <div class="subtitle">Personalized for {{ user_name }}, {{ user_title }}</div>
-        <div class="stats">{{ stats.paper_count }} Papers &bull; {{ stats.news_count }} News Articles &bull; {{ stats.reading_time_minutes }} min read</div>
-    </div>
-
-    {% if highlights and highlights|length > 0 %}
-    <div class="section">
-        <h2>TODAY'S HIGHLIGHTS</h2>
-        {% for h in highlights %}
-        <div class="highlight-item">
-            &bull; <strong>{{ h.title }}:</strong> {{ h.insight }}
-        </div>
-        {% endfor %}
-    </div>
-    {% endif %}
-
-    {% if directly_relevant and directly_relevant|length > 0 %}
-    <div class="section">
-        <h2>DIRECTLY RELEVANT TO YOUR WORK</h2>
-        {% for a in directly_relevant %}
-        <div class="article">
-            <div class="article-title">{{ a.title }}</div>
-            <div class="article-meta">
-                {% if a.type == "news" %}NEWS{% else %}RESEARCH{% endif %}
-                &bull; {{ a.importance_label }}
-                &bull; Score: {{ a.relevance_score }}/100
-                {% if a.source %}&bull; {{ a.source }}{% endif %}
+  {% if quick_scan and quick_scan|length > 0 %}
+    {{ section_title("Quick scan") }}
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; margin-top: {{ theme.spacing['12'] }};">
+      {% for a in quick_scan %}
+        <tr>
+          <td style="padding: {{ theme.spacing['8'] }} 0; border-bottom: 1px solid {{ theme.colors.divider }};">
+            <div style="font-family: {{ theme.type.font_heading }}; font-size: {{ theme.type.sizes.h3 }}; font-weight: 800;">
+              <span style="color: {{ theme.colors.newsprint_red }}; font-weight: 900;">•</span> {{ a.title }}
+              <span class="email-muted" style="font-family: {{ theme.type.font_mono }}; font-size: {{ theme.type.sizes.xs }}; font-weight: 400;">
+                (Score: {{ a.relevance_score }})
+              </span>
             </div>
-
             {% if a.summary %}
-            <div class="summary">{{ a.summary }}</div>
+              <div style="margin-top: {{ theme.spacing['6'] }}; font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; line-height: {{ theme.type.line_height.normal }};">
+                {{ a.summary[:120] }}{% if a.summary|length > 120 %}...{% endif %}
+              </div>
             {% endif %}
-
-            {% if a.why_relevant %}
-            <div class="relevance">
-                <strong>Why this matters:</strong> {{ a.why_relevant }}
+            <div style="margin-top: {{ theme.spacing['8'] }};">
+              <a href="{{ a.article_url }}" style="font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; text-decoration: underline;">
+                Read →
+              </a>
             </div>
-            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </table>
+  {% endif %}
 
-            {% if a.key_takeaway %}
-            <div class="summary">
-                <strong>Key insight:</strong> {{ a.key_takeaway }}
-            </div>
-            {% endif %}
-
-            <div class="actions">
-                <a href="{{ a.article_url }}">Read Article</a>
-                {% if a.type != "news" and a.pdf_url %}
-                <a href="{{ a.pdf_url }}">Download PDF</a>
-                {% endif %}
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-    {% endif %}
-
-    {% if expand_knowledge and expand_knowledge|length > 0 %}
-    <div class="section">
-        <h2>EXPAND YOUR KNOWLEDGE</h2>
-        {% for a in expand_knowledge %}
-        <div class="article">
-            <div class="article-title">{{ a.title }}</div>
-            <div class="article-meta">
-                {% if a.type == "news" %}NEWS{% else %}RESEARCH{% endif %}
-                &bull; {{ a.importance_label }}
-                &bull; Score: {{ a.relevance_score }}/100
-                {% if a.source %}&bull; {{ a.source }}{% endif %}
-            </div>
-
-            {% if a.summary %}
-            <div class="summary">{{ a.summary }}</div>
-            {% endif %}
-
-            {% if a.why_relevant %}
-            <div class="relevance">
-                <strong>Why this matters:</strong> {{ a.why_relevant }}
-            </div>
-            {% endif %}
-
-            {% if a.key_takeaway %}
-            <div class="summary">
-                <strong>Key insight:</strong> {{ a.key_takeaway }}
-            </div>
-            {% endif %}
-
-            <div class="actions">
-                <a href="{{ a.article_url }}">Read Article</a>
-                {% if a.type != "news" and a.pdf_url %}
-                <a href="{{ a.pdf_url }}">Download PDF</a>
-                {% endif %}
-            </div>
-        </div>
-        {% endfor %}
-    </div>
-    {% endif %}
-
-    {% if quick_scan and quick_scan|length > 0 %}
-    <div class="section">
-        <h2>QUICK SCAN</h2>
-        {% for a in quick_scan %}
-        <div class="quick-item">
-            &bull; <strong>{{ a.title }}</strong> <span class="score">(Score: {{ a.relevance_score }})</span>
-            {% if a.summary %}<br>{{ a.summary[:100] }}{% if a.summary|length > 100 %}...{% endif %}{% endif %}
-            <a href="{{ a.article_url }}">Read &rarr;</a>
-        </div>
-        {% endfor %}
-    </div>
-    {% endif %}
-
-    <div class="footer">
-        <p><strong>Your Research Impact This Week</strong></p>
-        <p>{{ stats.papers_processed }}+ papers processed &bull; {{ stats.articles_selected }} selected for you &bull; ~{{ stats.time_saved_minutes }} minutes saved</p>
-        <p>Generated by <strong>Paperboy AI</strong> &bull; Accelerating research through intelligent curation</p>
-    </div>
-</body>
-</html>
+  {{ render_footer(stats) }}
+{% endblock %}

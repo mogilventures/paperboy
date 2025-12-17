@@ -1,0 +1,58 @@
+{# Base email layout for Paperboy (email-safe). #}
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <meta name="supported-color-schemes" content="light dark">
+    <title>{% block title %}Paperboy Digest{% endblock %}</title>
+    <style>
+      /* Minimal, email-safe resets (premailer can inline these). */
+      body { margin: 0; padding: 0; background: {{ theme.colors.background }}; }
+      table { border-collapse: collapse; }
+      img { border: 0; outline: none; text-decoration: none; -ms-interpolation-mode: bicubic; }
+      a { color: {{ theme.colors.link }}; }
+      .container { width: 100%; }
+      .email-text { color: {{ theme.colors.text }}; }
+      .email-muted { color: {{ theme.colors.muted_text }}; }
+      .email-callout { background: {{ theme.colors.callout_bg }}; }
+      @media screen and (max-width: 620px) {
+        .email-container { width: 100% !important; }
+        .px-gutter { padding-left: 14px !important; padding-right: 14px !important; }
+      }
+      @media (prefers-color-scheme: dark) {
+        .email-bg { background: #121212 !important; }
+        .email-surface { background: #1a1a1a !important; }
+        .email-text { color: #f2f2f2 !important; }
+        .email-muted { color: #cfcfcf !important; }
+        .email-border { border-color: #2b2b2b !important; }
+        .email-callout { background: #222222 !important; }
+        a { color: #f2f2f2 !important; }
+      }
+    </style>
+  </head>
+  <body style="margin:0; padding:0; background-color: {{ theme.colors.background }};">
+    {# Preheader: visible in inbox preview, hidden in body #}
+    <div style="display:none; font-size:1px; line-height:1px; max-height:0px; max-width:0px; opacity:0; overflow:hidden; mso-hide:all;">
+      {% block preheader %}Your personalized Paperboy digest.{% endblock %}
+    </div>
+
+    <!-- Full-width background wrapper -->
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" class="container email-bg" style="background-color: {{ theme.colors.background }};">
+      <tr>
+        <td align="center" style="padding: {{ theme.spacing['20'] }} 0;">
+          <!-- 600px container -->
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="{{ theme.layout.container_width }}" class="email-container email-surface" style="width: {{ theme.layout.container_width }}; max-width: {{ theme.layout.container_width }}; background-color: {{ theme.colors.surface }};">
+            <tr>
+              <td class="px-gutter email-text" style="padding: {{ theme.spacing['20'] }} {{ theme.layout.gutter }}; font-family: {{ theme.type.font_body }}; color: {{ theme.colors.text }};">
+                {% block content %}{% endblock %}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+

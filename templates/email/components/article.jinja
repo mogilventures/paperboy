@@ -1,0 +1,54 @@
+{% from "components/badge.jinja" import badge %}
+{% from "components/button.jinja" import button %}
+
+{% macro render_article(a) -%}
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; margin-top: {{ theme.spacing['16'] }};">
+    <tr>
+      <td style="padding: {{ theme.spacing['12'] }} 0; border-bottom: 1px solid {{ theme.colors.divider }};">
+        <div style="font-family: {{ theme.type.font_heading }}; font-size: {{ theme.type.sizes.h3 }}; font-weight: 800; margin: 0 0 {{ theme.spacing['6'] }} 0;">
+          {{ a.title }}
+        </div>
+
+        <div class="email-muted" style="font-family: {{ theme.type.font_mono }}; font-size: {{ theme.type.sizes.xs }};">
+          {% if a.type == "news" %}NEWS{% else %}RESEARCH{% endif %}
+          &bull; {{ a.importance_label }}
+          &bull; Score: {{ a.relevance_score }}/100
+          {% if a.source %}&bull; {{ a.source }}{% endif %}
+        </div>
+
+        {% if a.summary %}
+        <div style="margin-top: {{ theme.spacing['8'] }}; font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; line-height: {{ theme.type.line_height.normal }};">
+          {{ a.summary }}
+        </div>
+        {% endif %}
+
+        {% if a.why_relevant %}
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; margin-top: {{ theme.spacing['10'] }};">
+          <tr>
+            <td class="email-callout email-border" style="border-left: 3px solid {{ theme.colors.newsprint_red }}; padding: {{ theme.spacing['10'] }} {{ theme.spacing['12'] }};">
+              <div style="font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; line-height: {{ theme.type.line_height.normal }};">
+                <strong>Why this matters:</strong> {{ a.why_relevant }}
+              </div>
+            </td>
+          </tr>
+        </table>
+        {% endif %}
+
+        {% if a.key_takeaway %}
+        <div style="margin-top: {{ theme.spacing['10'] }}; font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; line-height: {{ theme.type.line_height.normal }};">
+          <strong>Key insight:</strong> {{ a.key_takeaway }}
+        </div>
+        {% endif %}
+
+        <div style="margin-top: {{ theme.spacing['12'] }};">
+          {{ button(a.article_url, "Read Article") }}
+          {% if a.type == "paper" and a.pdf_url %}
+            <span style="display:inline-block; width: {{ theme.spacing['8'] }};"></span>
+            {{ button(a.pdf_url, "Download PDF") }}
+          {% endif %}
+        </div>
+      </td>
+    </tr>
+  </table>
+{%- endmacro %}
+

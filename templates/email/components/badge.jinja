@@ -1,0 +1,6 @@
+{% macro badge(text) -%}
+  <span style="display:inline-block; padding: 2px 8px; border-radius: {{ theme.radii.sm }}; background: {{ theme.components.badge.bg }}; border: 1px solid {{ theme.components.badge.border }}; color: {{ theme.components.badge.text }}; font-family: {{ theme.type.font_mono }}; font-size: {{ theme.type.sizes.xs }}; line-height: 1.4;">
+    {{ text }}
+  </span>
+{%- endmacro %}
+

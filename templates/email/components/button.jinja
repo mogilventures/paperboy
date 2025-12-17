@@ -1,0 +1,13 @@
+{% macro button(href, label) -%}
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="display:inline-table;">
+    <tr>
+      <td bgcolor="{{ theme.components.button.bg }}" style="border-radius: {{ theme.radii.sm }}; text-align:center;">
+        <a href="{{ href }}"
+           style="display:inline-block; padding: 10px 14px; font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; font-weight: 700; color: {{ theme.components.button.text }}; text-decoration:none; border-radius: {{ theme.radii.sm }};">
+          {{ label }}
+        </a>
+      </td>
+    </tr>
+  </table>
+{%- endmacro %}
+

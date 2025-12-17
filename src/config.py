@@ -24,6 +24,13 @@ class Settings(BaseSettings):
         description='Render final digest via Jinja2 templates instead of LLM HTML generation'
     )
 
+    # Email rendering options
+    inline_email_css: bool = Field(
+        default=True,
+        validation_alias="INLINE_EMAIL_CSS",
+        description="Inline CSS into rendered email HTML for better client compatibility"
+    )
+
     logfire_token: Optional[str] = Field(default=None, validation_alias='LOGFIRE_TOKEN', description="Logfire token for monitoring")
     
     # News API Configuration
