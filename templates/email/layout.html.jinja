@@ -17,17 +17,42 @@
       .email-text { color: {{ theme.colors.text }}; }
       .email-muted { color: {{ theme.colors.muted_text }}; }
       .email-callout { background: {{ theme.colors.callout_bg }}; }
+      .email-title { color: {{ theme.colors.text }}; }
+      .email-h3 { color: {{ theme.colors.text }}; }
+      .email-accent { color: {{ theme.colors.newsprint_red }}; }
+      .email-link { color: {{ theme.colors.link }}; }
+      .email-divider { border-color: {{ theme.colors.divider }}; }
       @media screen and (max-width: 620px) {
         .email-container { width: 100% !important; }
         .px-gutter { padding-left: 14px !important; padding-right: 14px !important; }
       }
       @media (prefers-color-scheme: dark) {
+        /* Background layers */
         .email-bg { background: #121212 !important; }
         .email-surface { background: #1a1a1a !important; }
+
+        /* Text colors - must use !important to override inline styles */
         .email-text { color: #f2f2f2 !important; }
-        .email-muted { color: #cfcfcf !important; }
-        .email-border { border-color: #2b2b2b !important; }
-        .email-callout { background: #222222 !important; }
+        .email-muted { color: #a0a0a0 !important; }
+        .email-title { color: #ffffff !important; }
+        .email-h3 { color: #f2f2f2 !important; }
+        .email-link { color: #f2f2f2 !important; }
+
+        /* Borders and dividers */
+        .email-border { border-color: #333333 !important; }
+        .email-divider { border-color: #2b2b2b !important; }
+
+        /* Callouts */
+        .email-callout { background: #252525 !important; }
+
+        /* Accent color - brighter red for dark mode contrast */
+        .email-accent { color: #ff5c6a !important; }
+
+        /* Buttons - invert for dark mode */
+        .email-btn { background: #f2f2f2 !important; }
+        .email-btn-text { color: #1a1a1a !important; }
+
+        /* Links */
         a { color: #f2f2f2 !important; }
       }
     </style>

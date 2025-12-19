@@ -34,6 +34,19 @@ THEME = {
         "callout_bg": "#F8F6F0",
         "callout_border": "#D3CAB4",
     },
+    # Dark mode colors (applied via CSS @media prefers-color-scheme: dark)
+    "colors_dark": {
+        "background": "#121212",
+        "surface": "#1a1a1a",
+        "text": "#f2f2f2",
+        "muted_text": "#a0a0a0",
+        "title": "#ffffff",
+        "border": "#333333",
+        "divider": "#2b2b2b",
+        "link": "#f2f2f2",
+        "callout_bg": "#252525",
+        "accent": "#ff5c6a",  # Brighter red for dark mode contrast
+    },
     "type": {
         # Email-safe font stacks (webfonts may be ignored by many clients)
         "font_body": "Georgia, 'Times New Roman', serif",

@@ -4,12 +4,12 @@
 {% macro render_article(a) -%}
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; margin-top: {{ theme.spacing['16'] }};">
     <tr>
-      <td style="padding: {{ theme.spacing['12'] }} 0; border-bottom: 1px solid {{ theme.colors.divider }};">
-        <div style="font-family: {{ theme.type.font_heading }}; font-size: {{ theme.type.sizes.h3 }}; font-weight: 800; margin: 0 0 {{ theme.spacing['6'] }} 0;">
+      <td class="email-divider" style="padding: {{ theme.spacing['12'] }} 0; border-bottom: 1px solid {{ theme.colors.divider }};">
+        <div class="email-h3" style="font-family: {{ theme.type.font_heading }}; font-size: {{ theme.type.sizes.h3 }}; font-weight: 800; margin: 0 0 {{ theme.spacing['6'] }} 0; color: {{ theme.colors.text }};">
           {{ a.title }}
         </div>
 
-        <div class="email-muted" style="font-family: {{ theme.type.font_mono }}; font-size: {{ theme.type.sizes.xs }};">
+        <div class="email-muted" style="font-family: {{ theme.type.font_mono }}; font-size: {{ theme.type.sizes.xs }}; color: {{ theme.colors.muted_text }};">
           {% if a.type == "news" %}NEWS{% else %}RESEARCH{% endif %}
           &bull; {{ a.importance_label }}
           &bull; Score: {{ a.relevance_score }}/100
@@ -17,7 +17,7 @@
         </div>
 
         {% if a.summary %}
-        <div style="margin-top: {{ theme.spacing['8'] }}; font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; line-height: {{ theme.type.line_height.normal }};">
+        <div class="email-text" style="margin-top: {{ theme.spacing['8'] }}; font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; line-height: {{ theme.type.line_height.normal }}; color: {{ theme.colors.text }};">
           {{ a.summary }}
         </div>
         {% endif %}
@@ -25,8 +25,8 @@
         {% if a.why_relevant %}
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; margin-top: {{ theme.spacing['10'] }};">
           <tr>
-            <td class="email-callout email-border" style="border-left: 3px solid {{ theme.colors.newsprint_red }}; padding: {{ theme.spacing['10'] }} {{ theme.spacing['12'] }};">
-              <div style="font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; line-height: {{ theme.type.line_height.normal }};">
+            <td class="email-callout email-border" style="border-left: 3px solid {{ theme.colors.newsprint_red }}; padding: {{ theme.spacing['10'] }} {{ theme.spacing['12'] }}; background: {{ theme.colors.callout_bg }};">
+              <div class="email-text" style="font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; line-height: {{ theme.type.line_height.normal }}; color: {{ theme.colors.text }};">
                 <strong>Why this matters:</strong> {{ a.why_relevant }}
               </div>
             </td>
@@ -35,7 +35,7 @@
         {% endif %}
 
         {% if a.key_takeaway %}
-        <div style="margin-top: {{ theme.spacing['10'] }}; font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; line-height: {{ theme.type.line_height.normal }};">
+        <div class="email-text" style="margin-top: {{ theme.spacing['10'] }}; font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; line-height: {{ theme.type.line_height.normal }}; color: {{ theme.colors.text }};">
           <strong>Key insight:</strong> {{ a.key_takeaway }}
         </div>
         {% endif %}

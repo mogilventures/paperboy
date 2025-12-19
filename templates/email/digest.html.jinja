@@ -19,9 +19,9 @@
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; margin-top: {{ theme.spacing['12'] }};">
       {% for h in highlights %}
         <tr>
-          <td style="padding: {{ theme.spacing['6'] }} 0; font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; line-height: {{ theme.type.line_height.normal }};">
-            <span style="color: {{ theme.colors.newsprint_red }}; font-weight: 900;">•</span>
-            <strong>{{ h.title }}:</strong>
+          <td class="email-text" style="padding: {{ theme.spacing['6'] }} 0; font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; line-height: {{ theme.type.line_height.normal }}; color: {{ theme.colors.text }};">
+            <span class="email-accent" style="color: {{ theme.colors.newsprint_red }}; font-weight: 900;">•</span>
+            <strong class="email-h3" style="color: {{ theme.colors.text }};">{{ h.title }}:</strong>
             {{ h.insight }}
           </td>
         </tr>
@@ -48,20 +48,20 @@
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width:100%; margin-top: {{ theme.spacing['12'] }};">
       {% for a in quick_scan %}
         <tr>
-          <td style="padding: {{ theme.spacing['8'] }} 0; border-bottom: 1px solid {{ theme.colors.divider }};">
-            <div style="font-family: {{ theme.type.font_heading }}; font-size: {{ theme.type.sizes.h3 }}; font-weight: 800;">
-              <span style="color: {{ theme.colors.newsprint_red }}; font-weight: 900;">•</span> {{ a.title }}
-              <span class="email-muted" style="font-family: {{ theme.type.font_mono }}; font-size: {{ theme.type.sizes.xs }}; font-weight: 400;">
+          <td class="email-divider" style="padding: {{ theme.spacing['8'] }} 0; border-bottom: 1px solid {{ theme.colors.divider }};">
+            <div class="email-h3" style="font-family: {{ theme.type.font_heading }}; font-size: {{ theme.type.sizes.h3 }}; font-weight: 800; color: {{ theme.colors.text }};">
+              <span class="email-accent" style="color: {{ theme.colors.newsprint_red }}; font-weight: 900;">•</span> {{ a.title }}
+              <span class="email-muted" style="font-family: {{ theme.type.font_mono }}; font-size: {{ theme.type.sizes.xs }}; font-weight: 400; color: {{ theme.colors.muted_text }};">
                 (Score: {{ a.relevance_score }})
               </span>
             </div>
             {% if a.summary %}
-              <div style="margin-top: {{ theme.spacing['6'] }}; font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; line-height: {{ theme.type.line_height.normal }};">
+              <div class="email-text" style="margin-top: {{ theme.spacing['6'] }}; font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; line-height: {{ theme.type.line_height.normal }}; color: {{ theme.colors.text }};">
                 {{ a.summary[:120] }}{% if a.summary|length > 120 %}...{% endif %}
               </div>
             {% endif %}
             <div style="margin-top: {{ theme.spacing['8'] }};">
-              <a href="{{ a.article_url }}" style="font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; text-decoration: underline;">
+              <a class="email-link" href="{{ a.article_url }}" style="font-family: {{ theme.type.font_body }}; font-size: {{ theme.type.sizes.sm }}; text-decoration: underline; color: {{ theme.colors.link }};">
                 Read →
               </a>
             </div>
