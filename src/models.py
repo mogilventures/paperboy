@@ -134,9 +134,17 @@ class ArticleAnalysis(BaseModel):
 class UserContext(BaseModel):
     """User profile information (previously in agent.py)."""
     name: str
-    title: str
-    goals: str
+    title: Optional[str] = Field(default="Not specified", description="User's job title or role")
+    goals: Optional[str] = Field(default="Not specified", description="User's research goals and interests")
     news_interest: Optional[str] = Field(None, description="Specific topic of interest for news articles")
+
+    @field_validator("title", "goals", mode="before")
+    @classmethod
+    def handle_null_values(cls, v):
+        """Convert null/None values to default string."""
+        if v is None or v == "null" or (isinstance(v, str) and v.strip() == ""):
+            return "Not specified"
+        return v
 
 
 # =====================================================
