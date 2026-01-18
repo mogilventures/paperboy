@@ -184,13 +184,9 @@ class LLMClient:
         top_n: int
     ) -> List[RankedArticle]:
         """Rank articles based on user profile using structured outputs with complete article data."""
-        print(f"[RANKING DEBUG] Starting rank_articles with {len(articles)} articles, top_n={top_n}")
-        print(f"[RANKING DEBUG] User info: {user_info}")
-        
-        # Extract and structure user interests more comprehensively  
         primary_goals = user_info.get('goals', 'AI Research')
         user_title = user_info.get('title', 'Researcher')
-        
+
         system_prompt = f"""You are an expert research paper analyst. Your task is to rank academic papers based on their relevance to a user's research interests and background.
 
 Below is a list of articles in JSON format with complete metadata. Select the {top_n} most relevant articles based on the user profile.
@@ -228,71 +224,7 @@ Primary Goals: {primary_goals}
 Articles:
 {json.dumps(articles, indent=2)}"""
 
-        try:
-            # Try structured output first
-            print(f"[RANKING DEBUG] Calling _call_llm_structured for ranking")
-            response = await self._call_llm_structured(
-                system_prompt, 
-                user_prompt, 
-                RankingResponse,
-                temperature=0.3
-            )
-            print(f"[RANKING DEBUG] Response type from _call_llm_structured: {type(response)}")
-            
-            if isinstance(response, RankingResponse):
-                # Successful structured output - articles are already complete
-                logfire.info(f"Structured output success: got {len(response.articles)} complete articles")
-                
-                ranked_articles = []
-                for article in response.articles[:top_n]:
-                    try:
-                        # Convert ArticleRanking to dict and create RankedArticle
-                        article_data = article.model_dump()
-                        # Ensure we have the required field mappings for RankedArticle
-                        if 'score' in article_data and 'relevance_score' not in article_data:
-                            article_data['relevance_score'] = article_data.pop('score')
-                        if 'reasoning' in article_data and 'score_reason' not in article_data:
-                            article_data['score_reason'] = article_data.pop('reasoning')
-                        
-                        ranked_articles.append(RankedArticle(**article_data))
-                    except Exception as e:
-                        item_str = str(article.model_dump())[:200].replace('{', '{{').replace('}', '}}')
-                        logfire.error(f"Failed to create RankedArticle from structured output: {str(e)}, data: {item_str}")
-                        continue
-                
-                logfire.info(f"Successfully processed {len(ranked_articles)} complete articles via structured output")
-                return ranked_articles
-                
-            elif isinstance(response, list):
-                # Fallback response as list of dicts - should already be complete
-                logfire.info(f"Fallback response: got {len(response)} complete articles as list")
-                
-                ranked_articles = []
-                for item in response[:top_n]:
-                    try:
-                        # Ensure we have the required field mappings for RankedArticle
-                        if 'score' in item and 'relevance_score' not in item:
-                            item['relevance_score'] = item.pop('score')
-                        if 'reasoning' in item and 'score_reason' not in item:
-                            item['score_reason'] = item.pop('reasoning')
-                        
-                        ranked_articles.append(RankedArticle(**item))
-                    except Exception as e:
-                        item_str = str(item)[:200].replace('{', '{{').replace('}', '}}')
-                        logfire.error(f"Failed to create RankedArticle from fallback: {str(e)}, data: {item_str}")
-                        continue
-                
-                return ranked_articles
-            else:
-                logfire.error(f"Unexpected response type from structured call: {type(response)}")
-                return []
-                
-        except Exception as e:
-            print(f"[RANKING DEBUG] rank_articles exception: {type(e).__name__}: {str(e)}")
-            import traceback
-            print(f"[RANKING DEBUG] Traceback:\n{traceback.format_exc()}")
-            logfire.error(f"Structured ranking failed completely: {str(e)}")
-            raise ValueError(f"Article ranking failed: {str(e)}")
+        return await self._process_ranking_response(system_prompt, user_prompt, top_n)
 
     async def rank_papers_only(
         self,
@@ -417,43 +349,79 @@ News Articles:
         system_prompt: str,
         user_prompt: str,
         top_n: int,
-        content_type: str
+        content_type: Optional[str] = None,
+        infer_type: bool = False
     ) -> List[RankedArticle]:
-        """Process ranking response and convert to RankedArticle objects."""
+        """
+        Process ranking response and convert to RankedArticle objects.
+
+        Args:
+            system_prompt: The system prompt for the LLM.
+            user_prompt: The user prompt for the LLM.
+            top_n: Maximum number of articles to return.
+            content_type: Fixed content type to set ("paper" or "news"). If None, uses original.
+            infer_type: If True and type is missing, infer from subject field.
+        """
         try:
             response = await self._call_llm_structured(
-                system_prompt, 
-                user_prompt, 
+                system_prompt,
+                user_prompt,
                 RankingResponse,
                 temperature=0.3
             )
-            
+
             ranked_articles = []
-            
+
             if isinstance(response, RankingResponse):
+                logfire.info(f"Structured output success: got {len(response.articles)} articles")
                 for article in response.articles[:top_n]:
                     try:
                         article_data = article.model_dump()
-                        article_data['type'] = content_type
+                        self._normalize_ranking_fields(article_data, content_type, infer_type)
                         ranked_articles.append(RankedArticle(**article_data))
                     except Exception as e:
-                        logfire.error(f"Failed to create RankedArticle: {str(e)}")
+                        item_str = str(article.model_dump())[:200].replace('{', '{{').replace('}', '}}')
+                        logfire.error(f"Failed to create RankedArticle: {str(e)}, data: {item_str}")
                         continue
             elif isinstance(response, list):
+                logfire.info(f"Fallback response: got {len(response)} articles as list")
                 for item in response[:top_n]:
                     try:
-                        item['type'] = content_type
+                        self._normalize_ranking_fields(item, content_type, infer_type)
                         ranked_articles.append(RankedArticle(**item))
                     except Exception as e:
-                        logfire.error(f"Failed to create RankedArticle from list: {str(e)}")
+                        item_str = str(item)[:200].replace('{', '{{').replace('}', '}}')
+                        logfire.error(f"Failed to create RankedArticle from list: {str(e)}, data: {item_str}")
                         continue
-            
-            logfire.info(f"Ranked {len(ranked_articles)} {content_type} items")
+            else:
+                logfire.error(f"Unexpected response type from structured call: {type(response)}")
+
+            type_desc = content_type or "mixed"
+            logfire.info(f"Successfully processed {len(ranked_articles)} {type_desc} articles")
             return ranked_articles
-            
+
         except Exception as e:
-            logfire.error(f"Ranking failed for {content_type}: {str(e)}")
+            logfire.error(f"Ranking failed: {str(e)}")
             raise ValueError(f"Ranking failed: {str(e)}")
+
+    def _normalize_ranking_fields(
+        self,
+        article_data: Dict[str, Any],
+        content_type: Optional[str],
+        infer_type: bool
+    ) -> None:
+        """Normalize field names and set content type for ranking results."""
+        # Map alternative field names
+        if 'score' in article_data and 'relevance_score' not in article_data:
+            article_data['relevance_score'] = article_data.pop('score')
+        if 'reasoning' in article_data and 'score_reason' not in article_data:
+            article_data['score_reason'] = article_data.pop('reasoning')
+
+        # Set or infer content type
+        if content_type:
+            article_data['type'] = content_type
+        elif infer_type and ('type' not in article_data or not article_data['type']):
+            article_data['type'] = 'news' if article_data.get('subject') == 'news' else 'paper'
 
     async def rank_mixed_content(
         self,
@@ -463,8 +431,6 @@ News Articles:
         weight_recency: bool = True
     ) -> List[RankedArticle]:
         """Rank mixed content (papers and news) with type-aware scoring using structured outputs with complete content data."""
-        print(f"[RANKING DEBUG] Starting rank_mixed_content with {len(content)} items, top_n={top_n}")
-        
         # Extract and structure user interests more comprehensively
         primary_goals = user_info.get('goals', 'AI Research')
         news_interest = user_info.get('news_interest', '')
@@ -534,77 +500,11 @@ Content items:
 {json.dumps(content, indent=2)}"""
 
         try:
-            # Try structured output first
-            print(f"[RANKING DEBUG] Calling _call_llm_structured for mixed content ranking")
-            response = await self._call_llm_structured(
-                system_prompt, 
-                user_prompt, 
-                RankingResponse,
-                temperature=0.3
+            return await self._process_ranking_response(
+                system_prompt, user_prompt, top_n, infer_type=True
             )
-            print(f"[RANKING DEBUG] Mixed content response type: {type(response)}")
-            
-            if isinstance(response, RankingResponse):
-                # Successful structured output - content is already complete
-                logfire.info(f"Mixed content structured output success: got {len(response.articles)} complete items")
-                
-                ranked_articles = []
-                for article in response.articles[:top_n]:
-                    try:
-                        # Convert ArticleRanking to dict and create RankedArticle
-                        article_data = article.model_dump()
-                        # Ensure we have the required field mappings for RankedArticle
-                        if 'score' in article_data and 'relevance_score' not in article_data:
-                            article_data['relevance_score'] = article_data.pop('score')
-                        if 'reasoning' in article_data and 'score_reason' not in article_data:
-                            article_data['score_reason'] = article_data.pop('reasoning')
-                        
-                        # Ensure proper type field
-                        if 'type' not in article_data or not article_data['type']:
-                            article_data['type'] = 'news' if article_data.get('subject') == 'news' else 'paper'
-                        
-                        ranked_articles.append(RankedArticle(**article_data))
-                    except Exception as e:
-                        item_str = str(article.model_dump())[:200].replace('{', '{{').replace('}', '}}')
-                        logfire.error(f"Failed to create RankedArticle from mixed structured output: {str(e)}, data: {item_str}")
-                        continue
-
-                logfire.info(f"Successfully ranked {len(ranked_articles)} complete mixed content items via structured output")
-                return ranked_articles
-                
-            elif isinstance(response, list):
-                # Fallback response as list of dicts - should already be complete
-                logfire.info(f"Mixed content fallback response: got {len(response)} complete items as list")
-                
-                ranked_articles = []
-                for item in response[:top_n]:
-                    try:
-                        # Ensure we have the required field mappings for RankedArticle
-                        if 'score' in item and 'relevance_score' not in item:
-                            item['relevance_score'] = item.pop('score')
-                        if 'reasoning' in item and 'score_reason' not in item:
-                            item['score_reason'] = item.pop('reasoning')
-                        
-                        # Ensure proper type field
-                        if 'type' not in item or not item['type']:
-                            item['type'] = 'news' if item.get('subject') == 'news' else 'paper'
-                        
-                        ranked_articles.append(RankedArticle(**item))
-                    except Exception as e:
-                        item_str = str(item)[:200].replace('{', '{{').replace('}', '}}')
-                        logfire.error(f"Failed to create RankedArticle from mixed fallback: {str(e)}, data: {item_str}")
-                        continue
-
-                return ranked_articles
-            else:
-                logfire.error(f"Unexpected response type from mixed content structured call: {type(response)}")
-                return []
-                
-        except Exception as e:
-            print(f"[RANKING DEBUG] rank_mixed_content exception: {type(e).__name__}: {str(e)}")
-            logfire.error(f"Mixed content structured ranking failed: {str(e)}")
-            # Fallback to regular ranking
-            print(f"[RANKING DEBUG] Falling back to regular article ranking")
+        except ValueError:
+            # Fallback to regular ranking on failure
             logfire.info("Falling back to regular article ranking for mixed content")
             return await self.rank_articles(content, user_info, top_n)
 
@@ -867,35 +767,27 @@ Content:
 
     def _clean_html_response(self, response: str) -> str:
         """Clean and validate HTML response from LLM."""
-        print(f"[CLEAN HTML DEBUG] Input response type: {type(response)}, length: {len(response) if response else 0}")
         if not response or not response.strip():
-            print(f"[CLEAN HTML DEBUG] Response is empty or whitespace only")
             return ""
-        
+
         # Remove any markdown code block artifacts
         response = response.strip()
-        
+
         # Remove markdown code blocks if present
         if response.startswith('```html'):
             response = response[7:].strip()
         elif response.startswith('```'):
             response = response[3:].strip()
-            
+
         if response.endswith('```'):
             response = response[:-3].strip()
-        
+
         # Check if HTML is properly wrapped
         if response.lower().startswith('<html'):
-            # Already has HTML tags, don't double wrap
-            print(f"[CLEAN HTML DEBUG] Response already has <html> tags")
             return response
         elif response.lower().startswith('<!doctype'):
-            # Has doctype, also good
-            print(f"[CLEAN HTML DEBUG] Response has <!doctype> declaration")
             return response
         else:
-            # Missing HTML wrapper, add it
-            print(f"[CLEAN HTML DEBUG] Adding HTML wrapper to response")
             return f"<html>\n{response}\n</html>"
 
     def _fix_date_in_html(self, html: str, correct_date: str) -> str:
@@ -930,9 +822,7 @@ Content:
         """Create final HTML digest from individual summaries."""
         # Generate the current date in the required format
         current_date = datetime.now().strftime('%A, %B %d, %Y')
-        print(f"\n[DIGEST DEBUG] Starting create_final_digest with {len(summaries)} summaries")
-        print(f"[DIGEST DEBUG] Current date: {current_date}")
-        
+
         system_prompt = f"""IMPORTANT: Today's date is {current_date}. You MUST use this exact date in the digest.
 
 You are creating a personalized research digest in the EXACT format of Paperboy Digest.
@@ -1167,11 +1057,7 @@ CRITICAL REQUIREMENT: You MUST include BOTH research papers AND news articles in
         # Separate papers and news
         papers = [s for s in summaries if s.get('type') == 'paper']
         news = [s for s in summaries if s.get('type') == 'news']
-        
-        print(f"[DIGEST DEBUG] Papers: {len(papers)}, News: {len(news)}")
-        if news:
-            print(f"[DIGEST DEBUG] First news item: {news[0].get('title', 'Unknown')} - Score: {news[0].get('relevance_score', 0)}")
-        
+
         # Sort by relevance
         papers.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
         news.sort(key=lambda x: x.get('relevance_score', 0), reverse=True)
@@ -1203,40 +1089,26 @@ Industry News ({len(news)} items):
 Create a cohesive HTML digest that tells a story about what's important for this user today."""
 
         try:
-            print(f"[DIGEST DEBUG] Calling LLM with {len(system_prompt)} char system prompt and {len(user_prompt)} char user prompt")
             response = await self._call_llm(
-                system_prompt, 
-                user_prompt, 
-                temperature=0.7, 
+                system_prompt,
+                user_prompt,
+                temperature=0.7,
                 max_tokens=6000
             )
-            print(f"[DIGEST DEBUG] LLM response received, length: {len(response) if response else 0} chars")
-            print(f"[DIGEST DEBUG] First 200 chars of response: {response[:200] if response else 'EMPTY'}")
-            
+
             # Clean and validate HTML response
-            print(f"[DIGEST DEBUG] Cleaning HTML response...")
             cleaned_html = self._clean_html_response(response)
-            print(f"[DIGEST DEBUG] Cleaned HTML length: {len(cleaned_html) if cleaned_html else 0} chars")
-            print(f"[DIGEST DEBUG] Cleaned HTML is {'EMPTY' if not cleaned_html else 'NOT EMPTY'}")
-            
+
             # Post-process to ensure correct date
-            print(f"[DIGEST DEBUG] Fixing date in HTML...")
             cleaned_html = self._fix_date_in_html(cleaned_html, current_date)
-            
+
             if not cleaned_html:
-                print(f"[DIGEST DEBUG] FALLBACK TRIGGERED: Empty HTML response after cleaning")
                 logfire.warning("Empty HTML response from LLM, using fallback")
                 return self._create_fallback_html(summaries, user_info)
-            
-            print(f"[DIGEST DEBUG] SUCCESS: Returning cleaned HTML digest")
-                
+
             return cleaned_html
         except Exception as e:
-            print(f"[DIGEST DEBUG] FALLBACK TRIGGERED: Exception during digest creation: {type(e).__name__}: {str(e)}")
-            import traceback
-            print(f"[DIGEST DEBUG] Traceback: {traceback.format_exc()}")
             logfire.error(f"Failed to create final digest: {str(e)}")
-            # Return enhanced fallback HTML on failure
             return self._create_fallback_html(summaries, user_info)
 
     def _create_fallback_html(self, summaries: List[Dict[str, Any]], user_info: Dict[str, Any]) -> str:
@@ -1289,16 +1161,6 @@ Create a cohesive HTML digest that tells a story about what's important for this
         
         html += "\n</body>\n</html>"
         return html
-
-    def _determine_action(self, analysis_data: Dict[str, Any]) -> str:
-        """Determine recommended action based on analysis."""
-        relevance = analysis_data.get('relevance_to_user', '')
-        if 'highly relevant' in relevance.lower() or 'directly applicable' in relevance.lower():
-            return "Deep dive - this paper is highly relevant to your work"
-        elif 'somewhat relevant' in relevance.lower():
-            return "Skim the methodology section"
-        else:
-            return "Save for later reference"
 
     # =====================================================
     # Step 1: Python Email Templates - New Methods

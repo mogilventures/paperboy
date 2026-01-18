@@ -10,10 +10,10 @@ import json
 
 from .fetcher_lightweight import fetch_arxiv_cs_submissions
 from .news_fetcher import NewsAPIFetcher
-from .query_generator import QueryGenerator
 from .circuit_breaker import ServiceCircuitBreakers, CircuitOpenError
 from .config import settings
 from .models import TaskStatus
+from .http_utils import send_webhook_callback
 
 
 class FetchSourcesService:
@@ -25,13 +25,11 @@ class FetchSourcesService:
         
         # Initialize news components only if enabled
         self.news_fetcher = None
-        self.query_generator = None
-        
+
         if settings.news_enabled:
             try:
                 if settings.newsapi_key and settings.tavily_api_key:
                     self.news_fetcher = NewsAPIFetcher()
-                    self.query_generator = QueryGenerator()
                     logfire.info("News functionality enabled in fetch service")
                 else:
                     logfire.warn("News enabled but API keys not configured")
@@ -111,8 +109,8 @@ class FetchSourcesService:
             
             # Send callback if provided
             if callback_url:
-                await self._send_callback(callback_url, task_id, "completed", result)
-            
+                await send_webhook_callback(callback_url, task_id, "completed", result)
+
             return {
                 "source_date": source_date,
                 "status": "completed",
@@ -120,21 +118,21 @@ class FetchSourcesService:
                 "arxiv_count": len(arxiv_papers),
                 "news_count": len(news_articles)
             }
-            
+
         except Exception as e:
             error_msg = f"Failed to fetch sources: {str(e)}"
             logfire.error("Fetch sources failed", extra={"error": str(e), "source_date": source_date})
-            
+
             # Update fetch task to failed
             await self._update_fetch_task(task_id, "failed", error_msg)
-            
+
             # Update daily_sources to failed
             await self._update_daily_sources_status(source_date, "failed", error_msg)
-            
+
             # Send callback if provided
             if callback_url:
-                await self._send_callback(callback_url, task_id, "failed", error_msg)
-            
+                await send_webhook_callback(callback_url, task_id, "failed", error_msg)
+
             raise
     
     async def _fetch_arxiv_papers_with_breaker(self, source_date: str) -> List[Dict[str, Any]]:
@@ -175,13 +173,10 @@ class FetchSourcesService:
             return []
         
         try:
-            # Use QueryGenerator to get queries (will always return ["AI"])
-            dummy_user_info = {"name": "fetch_service", "title": "system", "goals": ""}
-            queries = await self.query_generator.generate_queries(
-                dummy_user_info, 
-                target_date=source_date
-            )
-            
+            # Hardcoded query for news fetching
+            queries = ["AI"]
+            logfire.info("Using default AI query for news search", extra={"source_date": source_date})
+
             # Fetch news with circuit breaker
             newsapi_breaker = self.circuit_breakers.get('newsapi')
             news_articles = await newsapi_breaker.call(
@@ -342,26 +337,6 @@ class FetchSourcesService:
             
         except Exception as e:
             logfire.error("Failed to update fetch task", extra={"error": str(e), "task_id": task_id})
-    
-    async def _send_callback(self, callback_url: str, task_id: str, status: str, result: Any) -> None:
-        """Send callback notification."""
-        import httpx
-        
-        payload = {
-            "task_id": task_id,
-            "status": status,
-            "result": result if status == "completed" else None,
-            "error": result if status == "failed" else None,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(callback_url, json=payload)
-                response.raise_for_status()
-            logfire.info("Fetch callback sent successfully", extra={"callback_url": callback_url, "task_id": task_id})
-        except Exception as e:
-            logfire.error("Failed to send fetch callback", extra={"error": str(e), "task_id": task_id})
 
 
 class DailySourcesManager:

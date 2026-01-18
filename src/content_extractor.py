@@ -1,11 +1,11 @@
 import asyncio
 from typing import List, Dict, Any, Optional
-import httpx
 import logfire
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from .config import settings
 from .metrics import NewsMetrics
+from .http_utils import create_http_client
 
 class ContentExtractionError(Exception):
     """Content extraction failed"""
@@ -23,22 +23,7 @@ class TavilyExtractor:
         self.semaphore = asyncio.Semaphore(settings.extract_max_concurrent)
         self._request_count = 0
         self._request_limit = 100  # Assumed daily limit
-        
-        # Optimized HTTP client configuration for Cloud Run
-        self.client = httpx.AsyncClient(
-            timeout=httpx.Timeout(
-                connect=5.0,      # Quick connection timeout
-                read=settings.extract_timeout or 25.0,  # Use extract_timeout if set
-                write=10.0,       # Quick write timeout
-                pool=2.0          # Quick pool timeout
-            ),
-            limits=httpx.Limits(
-                max_keepalive_connections=20,
-                max_connections=40,
-                keepalive_expiry=30.0
-            ),
-            http2=True,  # Enable HTTP/2 for better performance
-        )
+        self.client = create_http_client(read_timeout=settings.extract_timeout or 25.0)
     
     @NewsMetrics.track_content_extraction
     async def extract_articles(

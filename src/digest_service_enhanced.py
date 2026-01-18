@@ -6,9 +6,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 from collections import defaultdict
 import logfire
-import httpx
 import json
-
 
 from .models import TaskStatus, DigestStatus, RankedArticle, ArticleAnalysis, ContentType
 from .llm_client import LLMClient
@@ -18,9 +16,9 @@ from .state_supabase import TaskStateManager
 from .config import settings
 from .news_fetcher import NewsAPIFetcher
 from .content_extractor import TavilyExtractor
-from .query_generator import QueryGenerator
 from .circuit_breaker import ServiceCircuitBreakers, CircuitOpenError
 from .fetch_service import DailySourcesManager
+from .http_utils import send_webhook_callback
 
 
 
@@ -49,14 +47,12 @@ class EnhancedDigestService:
         # Initialize news components only if enabled
         self.news_fetcher = None
         self.content_extractor = None
-        self.query_generator = None
-        
+
         if settings.news_enabled:
             try:
                 if settings.newsapi_key and settings.tavily_api_key:
                     self.news_fetcher = NewsAPIFetcher()
                     self.content_extractor = TavilyExtractor()
-                    self.query_generator = QueryGenerator()
                     logfire.info("News functionality enabled")
                 else:
                     logfire.warn("News enabled but API keys not configured")
@@ -353,7 +349,7 @@ class EnhancedDigestService:
                 DigestStatus(status=TaskStatus.FAILED, message=error_msg)
             )
             if callback_url:
-                await self._send_callback(callback_url, task_id, "failed", error_msg)
+                await send_webhook_callback(callback_url, task_id, "failed", error_msg)
         except Exception as e:
             logfire.error("Digest generation failed: {error}", error=str(e))
             await self.state_manager.update_task(
@@ -361,98 +357,9 @@ class EnhancedDigestService:
                 DigestStatus(status=TaskStatus.FAILED, message=str(e))
             )
             if callback_url:
-                await self._send_callback(callback_url, task_id, "failed", str(e))
+                await send_webhook_callback(callback_url, task_id, "failed", str(e))
 
 
-    async def _rank_content_with_breaker(
-        self,
-        content: List[Dict[str, Any]],
-        user_info: Dict[str, Any],
-        top_n: int
-    ) -> List[RankedArticle]:
-        """Rank content with circuit breaker protection."""
-        breaker = self.circuit_breakers.get('openai')
-        
-        try:
-            return await breaker.call(self._rank_content, content, user_info, top_n)
-        except CircuitOpenError:
-            logfire.error("Ranking circuit breaker open, using fallback ranking")
-            # Simple fallback: return first N items
-            fallback_ranked = []
-            for i, item in enumerate(content[:top_n]):
-                try:
-                    article = RankedArticle(
-                        title=item.get('title', 'Unknown'),
-                        authors=item.get('authors', ['Unknown']),
-                        subject=item.get('subject', 'cs.AI'),
-                        score_reason="Circuit breaker active - default ranking",
-                        relevance_score=100 - (i * 10),  # Decreasing scores
-                        abstract_url=item.get('abstract_url', item.get('url', 'https://example.com')),
-                        html_url=item.get('html_url'),
-                        pdf_url=item.get('pdf_url'),
-                        type=ContentType.NEWS if item.get('type') == 'news' else ContentType.PAPER
-                    )
-                    fallback_ranked.append(article)
-                except Exception as e:
-                    logfire.error("Failed to create fallback ranked article: {error}", error=str(e))
-            
-            return fallback_ranked
-
-    async def _analyze_papers_with_breaker(
-        self,
-        ranked_articles: List[RankedArticle],
-        user_info: Dict[str, Any]
-    ) -> List[ArticleAnalysis]:
-        """Analyze papers with circuit breaker protection."""
-        breaker = self.circuit_breakers.get('openai')
-        analyses = []
-        
-        for article in ranked_articles:
-            try:
-                # Fetch content first (with ArXiv breaker if applicable)
-                if article.type == ContentType.NEWS:
-                    content = getattr(article, 'full_content', '') or getattr(article, 'content_preview', '')
-                    if not content:
-                        content = f"Title: {article.title}\n\nDescription: {article.score_reason}"
-                else:
-                    arxiv_breaker = self.circuit_breakers.get('arxiv')
-                    try:
-                        content = await arxiv_breaker.call(
-                            self.fetcher.fetch_article_content,
-                            str(article.abstract_url)
-                        )
-                    except CircuitOpenError:
-                        content = f"Title: {article.title}\n\nContent unavailable due to service issues."
-                
-                # Prepare metadata
-                metadata = self._prepare_article_metadata(article)
-                
-                # Analyze with circuit breaker
-                analysis = await breaker.call(
-                    self.llm_client.analyze_article,
-                    content,
-                    metadata,
-                    user_info
-                )
-                
-                # Preserve type-specific fields
-                if article.type == ContentType.NEWS:
-                    analysis.type = ContentType.NEWS
-                    analysis.source = getattr(article, 'source', '')
-                    analysis.published_at = getattr(article, 'published_at', '')
-                    analysis.url_to_image = getattr(article, 'url_to_image', '')
-                
-                analyses.append(analysis)
-                
-            except CircuitOpenError:
-                # Create minimal analysis when circuit is open
-                logfire.warn("Analysis circuit breaker open for article: {title}", title=article.title)
-                fallback_analysis = self._create_fallback_analysis(article)
-                analyses.append(fallback_analysis)
-            except Exception as e:
-                logfire.error("Failed to analyze article {title}: {error}", title=article.title, error=str(e))
-        
-        return analyses
 
     def _prepare_article_metadata(self, article: RankedArticle) -> Dict[str, Any]:
         """Prepare article metadata for analysis."""
@@ -513,71 +420,6 @@ class EnhancedDigestService:
             type=article.type
         )
 
-    async def _rank_news_articles(self, news_articles: List[Dict[str, Any]], user_info: Dict[str, Any], top_n: int = None) -> List[Dict[str, Any]]:
-        """Use OpenAI to rank and filter news articles before content extraction."""
-        # Use configured setting if top_n is not provided
-        if top_n is None:
-            top_n = settings.top_n_news
-            
-        if not news_articles:
-            return []
-
-        try:
-            system_prompt = f"""You are an expert news analyst. Your task is to rank news articles based on their relevance to a user's interests and work.
-
-Below is a list of news articles in JSON format. Select the {top_n} most relevant articles based on the user profile.
-
-Focus on:
-1. Articles directly related to the user's work, company, or industry
-2. Breaking news or developments in their field of interest
-3. Technology trends that align with their goals
-4. Industry insights that would be valuable for their role
-
-Your response MUST be a valid JSON array containing EXACTLY {top_n} selected articles. Each article should maintain its original structure but you can add a "relevance_reasoning" field explaining why it's relevant.
-
-Return ONLY the JSON array, no other text."""
-
-            user_prompt = f"""User profile:
-Name: {user_info.get('name', 'User')}
-Title: {user_info.get('title', '')}
-Goals: {user_info.get('goals', '')}
-News Interest: {user_info.get('news_interest', '')}
-
-News Articles to rank:
-{json.dumps(news_articles, indent=2)}"""
-
-            response = await self.llm_client._call_llm(
-                system_prompt,
-                user_prompt,
-                temperature=0.3,
-                max_tokens=4000
-            )
-
-            ranked_articles = json.loads(response)
-            
-            if not isinstance(ranked_articles, list):
-                logfire.error("LLM returned non-list for news ranking, using original articles")
-                return news_articles[:top_n]
-            
-            logfire.info("Successfully ranked news articles with AI", extra={
-                "original_count": len(news_articles),
-                "filtered_count": len(ranked_articles)
-            })
-            
-            return ranked_articles[:top_n]
-
-        except Exception as e:
-            logfire.error("Failed to rank news articles with AI", extra={"error": str(e)})
-            sorted_articles = sorted(
-                news_articles, 
-                key=lambda x: x.get('relevance_score', 0), 
-                reverse=True
-            )
-            return sorted_articles[:top_n]
-
-    # Include _rank_content, _analyze_papers, _generate_html, _generate_papers_section, 
-    # _generate_news_section, _complete_task, and _send_callback methods from original
-    # (These remain the same as in the original digest_service.py)
     
     async def _rank_content(self, content: List[Dict[str, Any]], user_info: Dict[str, Any], top_n: int) -> List[RankedArticle]:
         """[Original implementation]"""
@@ -588,39 +430,34 @@ News Articles to rank:
         news = [item for item in content if item.get('type') == 'news']
         
         logfire.info("Content breakdown for ranking", extra={"papers": len(papers), "news": len(news), "total": len(content)})
-        print(f"🔍 DEBUG: Content breakdown - Papers: {len(papers)}, News: {len(news)}, Total: {len(content)}")
-        
+
         max_articles = getattr(settings, 'ranking_input_max_articles', 20)
-        
+
         if news and papers:
             news_ratio = min(0.3, len(news) / len(content))
             max_news = max(len(news), int(max_articles * news_ratio))
             max_papers = max_articles - max_news
             content_subset = news[:max_news] + papers[:max_papers]
-            
+
             logfire.info("Balanced content subset for ranking", extra={
-                "papers_available": len(papers), 
-                "news_available": len(news), 
+                "papers_available": len(papers),
+                "news_available": len(news),
                 "total_available": len(content),
                 "news_ratio": news_ratio,
                 "max_news_calculated": max_news,
                 "max_papers_calculated": max_papers,
-                "papers_in_subset": min(max_papers, len(papers)), 
-                "news_in_subset": min(max_news, len(news)), 
+                "papers_in_subset": min(max_papers, len(papers)),
+                "news_in_subset": min(max_news, len(news)),
                 "total_subset": len(content_subset),
                 "content_subset_papers": len([item for item in content_subset if item.get('type') != 'news']),
                 "content_subset_news": len([item for item in content_subset if item.get('type') == 'news'])
             })
-            print(f"🔍 DEBUG: Balanced subset - Available: {len(papers)} papers, {len(news)} news. Calculated limits: {max_papers} papers, {max_news} news. Final subset: {len([item for item in content_subset if item.get('type') != 'news'])} papers, {len([item for item in content_subset if item.get('type') == 'news'])} news")
         elif news:
             content_subset = news[:max_articles]
-            print(f"🔍 DEBUG: Only news available - using {len(content_subset)} news articles")
         elif papers:
             content_subset = papers[:max_articles]
-            print(f"🔍 DEBUG: Only papers available - using {len(content_subset)} papers")
         else:
             content_subset = []
-            print(f"🔍 DEBUG: No content available!")
         
         if not content_subset:
             return []
@@ -1119,11 +956,6 @@ News Articles to rank:
             logfire.error(f"Error generating simple footer: {e}")
             return "</body></html>"
 
-    def _get_user_focus_area(self) -> str:
-        """Extract user's primary focus area from their info."""
-        # This would need to be passed through or stored in instance
-        return "AI Research"
-
     async def _rank_papers_separately(
         self,
         papers: List[Dict[str, Any]],
@@ -1393,22 +1225,4 @@ News Articles to rank:
         )
 
         if callback_url:
-            await self._send_callback(callback_url, task_id, "completed", result)
-
-    async def _send_callback(self, callback_url: str, task_id: str, status: str, result: str) -> None:
-        """Send callback to webhook URL."""
-        payload = {
-            "task_id": task_id,
-            "status": status,
-            "result": result if status == "completed" else None,
-            "error": result if status == "failed" else None,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.post(callback_url, json=payload)
-                response.raise_for_status()
-            logfire.info("Callback sent successfully to {url}", url=callback_url)
-        except Exception as e:
-            logfire.error("Failed to send callback: {error}", error=str(e))
+            await send_webhook_callback(callback_url, task_id, "completed", result)

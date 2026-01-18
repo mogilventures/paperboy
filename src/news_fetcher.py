@@ -1,5 +1,4 @@
 import asyncio
-import httpx
 from typing import List, Dict, Any, Optional, Set
 from datetime import datetime, timedelta
 import logfire
@@ -8,6 +7,7 @@ import time
 
 from .config import settings
 from .metrics import NewsMetrics
+from .http_utils import create_http_client
 
 class NewsAPIError(Exception):
     """Custom exception for NewsAPI errors"""
@@ -26,21 +26,7 @@ class NewsAPIFetcher:
         
         self.api_key = settings.newsapi_key
         self.base_url = "https://newsapi.org/v2/everything"
-        # Optimized HTTP client configuration for Cloud Run
-        self.client = httpx.AsyncClient(
-            timeout=httpx.Timeout(
-                connect=5.0,      # Quick connection timeout
-                read=25.0,        # Allow time for large responses
-                write=10.0,       # Quick write timeout
-                pool=2.0          # Quick pool timeout
-            ),
-            limits=httpx.Limits(
-                max_keepalive_connections=20,
-                max_connections=40,
-                keepalive_expiry=30.0
-            ),
-            http2=True,  # Enable HTTP/2 for better performance
-        )
+        self.client = create_http_client()
         
         # Time-based rate limiting: NewsAPI free tier allows ~100 requests per day
         # We'll be conservative and limit to 1 request per 2 seconds (1800 per hour max)

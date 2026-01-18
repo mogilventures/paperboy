@@ -14,6 +14,8 @@ import asyncio
 import httpx
 from bs4 import BeautifulSoup
 
+from .http_utils import create_http_client
+
 logger = logging.getLogger(__name__)
 
 async def fetch_arxiv_cs_submissions(target_date: str, client: Optional[httpx.AsyncClient] = None) -> List[Dict[str, Any]]:
@@ -167,23 +169,9 @@ fetch_arxiv_page = fetch_arxiv_cs_submissions
 
 class ArxivFetcher:
     """Arxiv fetcher with connection pooling and improved performance."""
-    
+
     def __init__(self):
-        # Optimized HTTP client configuration for Cloud Run
-        self.client = httpx.AsyncClient(
-            timeout=httpx.Timeout(
-                connect=5.0,      # Quick connection timeout
-                read=25.0,        # Allow time for large responses
-                write=10.0,       # Quick write timeout
-                pool=2.0          # Quick pool timeout
-            ),
-            limits=httpx.Limits(
-                max_keepalive_connections=20,
-                max_connections=40,
-                keepalive_expiry=30.0
-            ),
-            http2=True,  # Enable HTTP/2 for better performance
-        )
+        self.client = create_http_client()
         self.semaphore = asyncio.Semaphore(5)
     
     async def fetch_arxiv_papers(self, category: str, max_results: int = 20) -> List[Dict[str, Any]]:
