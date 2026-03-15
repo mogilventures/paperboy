@@ -1,6 +1,7 @@
 import asyncio
 from typing import List, Dict, Any, Optional, Set
 from datetime import datetime, timedelta
+import httpx
 import logfire
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import time
