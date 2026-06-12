@@ -1,3 +1,11 @@
+# =============================================================================
+# Top-level (direct) dependencies — the "what we want".
+# The Docker image does NOT install from this file; it installs from the fully
+# pinned requirements.lock.txt (complete transitive closure) so rebuilds are
+# deterministic. Edit deps here, then regenerate the lock (see that file's
+# header). Keep the two in sync.
+# =============================================================================
+
 # Core framework
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
@@ -18,6 +26,11 @@ python-multipart==0.0.20
 logfire==2.8.0
 typing-extensions==4.12.2
 tenacity==9.0.0  # Add for retry logic
+
+# Pinned transitive (drift guard): logfire -> opentelemetry pulls this in, but a
+# fresh resolve once dropped it and crash-looped boot with
+# "ModuleNotFoundError: importlib_metadata". Pin it so it can never disappear.
+importlib_metadata==8.7.1
 
 # Supabase integration
 supabase==2.11.0  # For state management and caching
