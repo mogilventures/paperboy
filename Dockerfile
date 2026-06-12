@@ -17,9 +17,13 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Copy requirements and install Python dependencies
-COPY requirements.lightweight.txt ./
-RUN pip install --no-cache-dir -r requirements.lightweight.txt
+# Copy requirements and install Python dependencies.
+# Install from the fully pinned lockfile (complete transitive closure) so the
+# build is deterministic — re-resolving transitive deps once dropped
+# importlib_metadata and crash-looped the app on boot. requirements.lightweight.txt
+# is kept as the human-edited source of direct deps; regenerate the lock from it.
+COPY requirements.lock.txt requirements.lightweight.txt ./
+RUN pip install --no-cache-dir -r requirements.lock.txt
 
 # Create a non-root user with specific UID/GID
 RUN groupadd --system --gid 10001 app && \
