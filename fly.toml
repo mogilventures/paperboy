@@ -10,9 +10,9 @@ primary_region = "ord"  # Change to your preferred region
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = true
+  auto_stop_machines = false  # Don't auto-stop: it was killing in-flight background digests mid-run
   auto_start_machines = true
-  min_machines_running = 0  # Scale to zero when idle to save costs
+  min_machines_running = 1  # Keep one machine warm so the daily digest run isn't stopped mid-flight
   processes = ["app"]
 
   # Health check disabled during initial deployment
