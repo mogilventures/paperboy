@@ -70,7 +70,20 @@ def get_supabase_client() -> Client:
 
 def validate_environment():
     """Validate required environment variables at startup."""
-    required_vars = ['OPENAI_API_KEY', 'API_KEY']
+    # API_KEY is always required for endpoint authentication. The LLM provider
+    # key requirement depends on LLM_PROVIDER (default 'openai').
+    required_vars = ['API_KEY']
+
+    provider = os.getenv('LLM_PROVIDER', 'openai').lower()
+    if provider == 'openai':
+        required_vars.append('OPENAI_API_KEY')
+    elif provider == 'fireworks':
+        required_vars.append('FIREWORKS_API_KEY')
+    else:
+        raise RuntimeError(
+            f"Unsupported LLM_PROVIDER '{provider}'. Use 'openai' or 'fireworks'."
+        )
+
     missing = [var for var in required_vars if not os.getenv(var)]
     if missing:
         raise RuntimeError(f"Missing required environment variables: {missing}")

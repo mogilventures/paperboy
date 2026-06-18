@@ -9,8 +9,42 @@ class Settings(BaseSettings):
     All values are loaded from environment variables (or config/.env) with type safety.
     Missing mandatory fields will raise validation errors at startup.
     """
-    openai_api_key: str = Field(..., validation_alias='OPENAI_API_KEY')
+    # OpenAI key is no longer required at import time so a Fireworks-only
+    # deployment can start without it. LLMClient enforces its presence when
+    # LLM_PROVIDER=openai (the default), failing fast with a clear error.
+    openai_api_key: Optional[str] = Field(default=None, validation_alias='OPENAI_API_KEY')
     openai_model: str = Field(default='gpt-4o', validation_alias='OPENAI_MODEL')
+
+    # LLM provider selection (OpenAI-compatible). Keep OpenAI as the default.
+    llm_provider: str = Field(
+        default='openai',
+        validation_alias='LLM_PROVIDER',
+        description="Which LLM backend to use: 'openai' or 'fireworks'. Both use the OpenAI-compatible client.",
+    )
+    # API surface to call. When unset, the client picks a provider-appropriate
+    # default: 'responses' for OpenAI, 'chat_completions' for Fireworks.
+    llm_api_mode: Optional[str] = Field(
+        default=None,
+        validation_alias='LLM_API_MODE',
+        description="LLM API surface: 'responses' or 'chat_completions'. Unset = provider default.",
+    )
+
+    # Fireworks AI (OpenAI-compatible endpoints). Only required when LLM_PROVIDER=fireworks.
+    fireworks_api_key: Optional[str] = Field(
+        default=None,
+        validation_alias='FIREWORKS_API_KEY',
+        description="Fireworks AI API key. Required only when LLM_PROVIDER=fireworks.",
+    )
+    fireworks_model: str = Field(
+        default='accounts/fireworks/models/llama-v3p1-70b-instruct',
+        validation_alias='FIREWORKS_MODEL',
+        description="Fireworks model id. Override with the model you want to evaluate.",
+    )
+    fireworks_base_url: str = Field(
+        default='https://api.fireworks.ai/inference/v1',
+        validation_alias='FIREWORKS_BASE_URL',
+        description="Fireworks OpenAI-compatible base URL.",
+    )
     top_n_articles: int = Field(default=5, validation_alias='TOP_N_ARTICLES')
     top_n_news: int = Field(default=5, validation_alias='TOP_N_NEWS', description="Number of news articles to include in digest")
     ranking_input_max_articles: int = Field(default=20, validation_alias='RANKING_INPUT_MAX_ARTICLES', description="Maximum number of raw articles to send to the LLM for the ranking step.")
