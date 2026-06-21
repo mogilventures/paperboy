@@ -36,7 +36,7 @@ class Settings(BaseSettings):
         description="Fireworks AI API key. Required only when LLM_PROVIDER=fireworks.",
     )
     fireworks_model: str = Field(
-        default='accounts/fireworks/models/llama-v3p1-70b-instruct',
+        default='accounts/fireworks/models/gpt-oss-120b',
         validation_alias='FIREWORKS_MODEL',
         description="Fireworks model id. Override with the model you want to evaluate.",
     )

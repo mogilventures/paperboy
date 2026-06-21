@@ -14,7 +14,7 @@ four things differ per provider, all driven by config:
 | -------------- | ---------------------------- | ------------------------------------------------------ |
 | API key        | `OPENAI_API_KEY`             | `FIREWORKS_API_KEY`                                    |
 | Base URL       | (default OpenAI)             | `FIREWORKS_BASE_URL` (`https://api.fireworks.ai/inference/v1`) |
-| Model          | `OPENAI_MODEL`               | `FIREWORKS_MODEL` (e.g. `accounts/fireworks/models/llama-v3p1-70b-instruct`) |
+| Model          | `OPENAI_MODEL`               | `FIREWORKS_MODEL` (e.g. `accounts/fireworks/models/gpt-oss-120b`) |
 | Default API mode | `responses`                | `chat_completions`                                     |
 
 Fireworks does not implement OpenAI's Responses API, so the client defaults to
@@ -32,7 +32,7 @@ Add to `config/.env` (see `config/.env.example`):
 ```bash
 LLM_PROVIDER=fireworks
 FIREWORKS_API_KEY=fw-...                 # do not commit a real key
-FIREWORKS_MODEL=accounts/fireworks/models/llama-v3p1-70b-instruct
+FIREWORKS_MODEL=accounts/fireworks/models/gpt-oss-120b
 FIREWORKS_BASE_URL=https://api.fireworks.ai/inference/v1
 # LLM_API_MODE=chat_completions          # optional; this is the Fireworks default
 ```

@@ -74,7 +74,7 @@ To run on [Fireworks AI](https://fireworks.ai) instead, set:
 - `LLM_API_MODE` (optional): `responses` or `chat_completions`. Unset uses the
   provider default (`responses` for OpenAI, `chat_completions` for Fireworks).
 - `FIREWORKS_API_KEY`: required when `LLM_PROVIDER=fireworks`
-- `FIREWORKS_MODEL` (default: `accounts/fireworks/models/llama-v3p1-70b-instruct`)
+- `FIREWORKS_MODEL` (default: `accounts/fireworks/models/gpt-oss-120b`)
 - `FIREWORKS_BASE_URL` (default: `https://api.fireworks.ai/inference/v1`)
 
 OpenAI remains the fallback/default and its behavior is unchanged. See
