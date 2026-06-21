@@ -17,7 +17,7 @@ Usage:
 
     # Fireworks
     LLM_PROVIDER=fireworks FIREWORKS_API_KEY=... \
-        FIREWORKS_MODEL=accounts/fireworks/models/llama-v3p1-70b-instruct \
+        FIREWORKS_MODEL=accounts/fireworks/models/gpt-oss-120b \
         python3 scripts/eval_provider_smoke.py
 """
 import asyncio
