@@ -53,7 +53,7 @@ Configuration is loaded from `config/.env` (see `config/.env.example`).
 
 ### Required
 
-- `OPENAI_API_KEY`: OpenAI API key
+- `OPENAI_API_KEY`: OpenAI API key (required when `LLM_PROVIDER` is unset/`openai`; not required when `LLM_PROVIDER=fireworks`, which uses `FIREWORKS_API_KEY` instead — see [LLM provider](#llm-provider-openai-or-fireworks))
 - `API_KEY`: required for authenticated endpoints via `X-API-Key`
 - `SUPABASE_URL`, `SUPABASE_KEY`: used for task state + caching (required by the current implementation)
 
@@ -64,6 +64,22 @@ Configuration is loaded from `config/.env` (see `config/.env.example`).
 - `NEWSAPI_KEY` (required only if `NEWS_ENABLED=true` and you want news results)
 - `TAVILY_API_KEY` (optional, improves news article extraction)
 - `LOGFIRE_TOKEN` (optional)
+
+### LLM provider (OpenAI or Fireworks)
+
+LLM workloads run through an OpenAI-compatible client and default to OpenAI.
+To run on [Fireworks AI](https://fireworks.ai) instead, set:
+
+- `LLM_PROVIDER`: `openai` (default) or `fireworks`
+- `LLM_API_MODE` (optional): `responses` or `chat_completions`. Unset uses the
+  provider default (`responses` for OpenAI, `chat_completions` for Fireworks).
+- `FIREWORKS_API_KEY`: required when `LLM_PROVIDER=fireworks`
+- `FIREWORKS_MODEL` (default: `accounts/fireworks/models/llama-v3p1-70b-instruct`)
+- `FIREWORKS_BASE_URL` (default: `https://api.fireworks.ai/inference/v1`)
+
+OpenAI remains the fallback/default and its behavior is unchanged. See
+[docs/fireworks-migration.md](docs/fireworks-migration.md) for safe rollout
+guardrails and what to compare in evals.
 
 ## API
 

@@ -46,8 +46,112 @@ class LLMClient:
     """Simple LLM client with retry logic and structured outputs."""
 
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=settings.openai_api_key)
-        self.model = settings.openai_model
+        """Build an OpenAI-compatible client for the configured provider.
+
+        Both OpenAI and Fireworks are reached through ``AsyncOpenAI``; only the
+        api_key, base_url, model, and default API surface differ. OpenAI remains
+        the default and its behavior is unchanged.
+        """
+        provider = (settings.llm_provider or "openai").lower()
+        self.provider = provider
+
+        if provider == "openai":
+            if not settings.openai_api_key:
+                raise ValueError(
+                    "LLM_PROVIDER=openai (default) but OPENAI_API_KEY is not set. "
+                    "Set OPENAI_API_KEY, or switch LLM_PROVIDER to 'fireworks' and "
+                    "set FIREWORKS_API_KEY."
+                )
+            api_key = settings.openai_api_key
+            base_url: Optional[str] = None
+            self.model = settings.openai_model
+            default_api_mode = "responses"
+        elif provider == "fireworks":
+            if not settings.fireworks_api_key:
+                raise ValueError(
+                    "LLM_PROVIDER=fireworks but FIREWORKS_API_KEY is not set. "
+                    "Set FIREWORKS_API_KEY, or switch LLM_PROVIDER back to 'openai'."
+                )
+            api_key = settings.fireworks_api_key
+            base_url = settings.fireworks_base_url
+            self.model = settings.fireworks_model
+            default_api_mode = "chat_completions"
+        else:
+            raise ValueError(
+                f"Unsupported LLM_PROVIDER '{provider}'. Use 'openai' or 'fireworks'."
+            )
+
+        # Resolve API surface: explicit override wins, else provider default.
+        api_mode = (settings.llm_api_mode or default_api_mode).lower()
+        if api_mode not in ("responses", "chat_completions"):
+            raise ValueError(
+                f"Unsupported LLM_API_MODE '{api_mode}'. Use 'responses' or 'chat_completions'."
+            )
+        self.api_mode = api_mode
+
+        client_kwargs: Dict[str, Any] = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        self.client = AsyncOpenAI(**client_kwargs)
+
+        # Log provider/model/mode but NEVER the API key.
+        logfire.info(
+            "LLMClient initialized",
+            extra={
+                "provider": self.provider,
+                "model": self.model,
+                "api_mode": self.api_mode,
+            },
+        )
+
+    @staticmethod
+    def _strip_code_fences(content: str) -> str:
+        """Remove leading/trailing markdown code fences from a model response."""
+        if not content:
+            return content
+        content = content.strip()
+        if content.startswith("```json"):
+            content = content[7:]
+        elif content.startswith("```html"):
+            content = content[7:]
+        elif content.startswith("```"):
+            content = content[3:]
+        if content.endswith("```"):
+            content = content[:-3]
+        return content.strip()
+
+    async def _raw_completion(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float,
+    ) -> str:
+        """Issue a single completion via the configured API surface and return raw text.
+
+        - ``responses`` (OpenAI default): combine prompts into one input and read
+          ``output_text``.
+        - ``chat_completions`` (Fireworks default / OpenAI-compatible): send
+          system + user messages and read ``choices[0].message.content``.
+        """
+        if self.api_mode == "chat_completions":
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=temperature,
+            )
+            return response.choices[0].message.content
+
+        # Default: Responses API. Combine system and user prompts.
+        input_content = f"{system_prompt}\n\n{user_prompt}"
+        response = await self.client.responses.create(
+            model=self.model,
+            input=input_content,
+            temperature=temperature,
+        )
+        return response.output_text
 
     @retry(
         stop=stop_after_attempt(3),
@@ -60,22 +164,14 @@ class LLMClient:
         temperature: float = 0.7,
         max_tokens: int = 4000
     ) -> str:
-        """Make LLM call with retry logic and performance monitoring using Responses API."""
+        """Make LLM call with retry logic and performance monitoring."""
         start_time = time.time()
         try:
-            # Format input for Responses API - combine system and user prompts
-            input_content = f"{system_prompt}\n\n{user_prompt}"
-            
-            response = await self.client.responses.create(
-                model=self.model,
-                input=input_content,
-                temperature=temperature
-            )
-            
-            # Extract content using output_text property (simplified)
-            content = response.output_text
+            content = await self._raw_completion(system_prompt, user_prompt, temperature)
+
+            # Extract content (simplified)
             if not content:
-                raise ValueError("Empty response from OpenAI")
+                raise ValueError(f"Empty response from {self.provider}")
 
             # Remove markdown code blocks if present
             if content.startswith("```json"):
@@ -117,21 +213,24 @@ class LLMClient:
         start_time = time.time()
         
         try:
-            # Use Responses API with JSON schema instruction
-            combined_prompt = f"{system_prompt}\n\nYou must respond with valid JSON matching this schema: {response_model.model_json_schema()}\n\n{user_prompt}"
-            
-            response = await self.client.responses.create(
-                model=self.model,
-                input=combined_prompt,
-                temperature=temperature
+            # Prompt for JSON matching the schema. Works across both API surfaces;
+            # the schema instruction lives in the system prompt so chat_completions
+            # keeps a clean user message.
+            structured_system_prompt = (
+                f"{system_prompt}\n\nYou must respond with valid JSON matching "
+                f"this schema: {response_model.model_json_schema()}"
             )
-            
+
             # Get response text and parse JSON
-            json_text = response.output_text
+            json_text = await self._raw_completion(
+                structured_system_prompt, user_prompt, temperature
+            )
             if not json_text:
-                raise ValueError("Empty response from OpenAI")
+                raise ValueError(f"Empty response from {self.provider}")
                 
             try:
+                # Strip markdown code fences (common with chat_completions models)
+                json_text = self._strip_code_fences(json_text)
                 # Parse JSON and validate with Pydantic model
                 json_data = json.loads(json_text)
                 parsed_content = response_model(**json_data)
