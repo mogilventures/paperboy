@@ -623,6 +623,8 @@ Focus on:
 2. How it directly impacts their daily work
 3. What specific action they should take
 
+If the user has stated topic/news interests, frame relevance around those interests too — not only their primary goals.
+
 Your response MUST be **only** a valid JSON object structured exactly as follows:
 
 {
@@ -646,6 +648,7 @@ Do not include any other text outside of this JSON structure."""
         user_prompt = f"""User Name: {user_info.get('name', 'Researcher')}
 User Title: {user_info.get('title', 'Researcher')}
 User Research Goals: {user_info.get('goals', ', '.join(user_info.get('research_interests', [])))}
+{f"User Topic/News Interests: {user_info.get('news_interest')}" if user_info.get('news_interest') else ""}
 
 Article Title: {article_metadata.get('title', 'N/A')}
 Article Authors: {', '.join(article_metadata.get('authors', []))}
