@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     )
 
     logfire_token: Optional[str] = Field(default=None, validation_alias='LOGFIRE_TOKEN', description="Logfire token for monitoring")
+
+    # Sentry error monitoring (optional). No-ops when unset. PII is never sent.
+    sentry_dsn: Optional[str] = Field(default=None, validation_alias='SENTRY_DSN', description="Sentry DSN for backend error reporting. Leave unset to disable.")
+    sentry_environment: str = Field(default='production', validation_alias='SENTRY_ENVIRONMENT', description="Environment tag reported to Sentry")
     
     # News API Configuration
     newsapi_key: Optional[str] = Field(None, validation_alias='NEWSAPI_KEY')

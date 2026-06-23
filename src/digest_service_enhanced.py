@@ -9,7 +9,8 @@ import logfire
 import json
 
 from .models import TaskStatus, DigestStatus, RankedArticle, ArticleAnalysis, ContentType
-from .llm_client import LLMClient
+from .llm_client import LLMClient, summarize_exception
+from . import observability
 from .email_renderer import render_digest_html
 from .fetcher_lightweight import ArxivFetcher
 from .state_supabase import TaskStateManager
@@ -261,9 +262,12 @@ class EnhancedDigestService:
                 await self._complete_task(task_id, f"No content found in pre-fetched sources for: {', '.join(sources_requested)}", callback_url)
                 return
 
-            # Separate ranking for papers and news
+            # Separate ranking for papers and news. Each source is ranked
+            # independently so a failure in one (e.g. an LLM response-shape
+            # error) cannot sink a digest the other source could still produce.
             ranked_papers = []
             ranked_news = []
+            ranking_errors: List[str] = []
 
             await self.state_manager.update_task(
                 task_id,
@@ -277,8 +281,14 @@ class EnhancedDigestService:
                     task_id,
                     DigestStatus(status=TaskStatus.PROCESSING, message=f"Ranking {len(articles)} papers...")
                 )
-                ranked_papers = await self._rank_papers_separately(articles, user_info, top_n_papers)
-                logfire.info(f"Ranked papers", extra={"input": len(articles), "output": len(ranked_papers)})
+                try:
+                    ranked_papers = await self._rank_papers_separately(articles, user_info, top_n_papers)
+                    logfire.info(f"Ranked papers", extra={"input": len(articles), "output": len(ranked_papers)})
+                except Exception as e:
+                    msg = summarize_exception(e)
+                    logfire.error("Paper ranking failed: {error}", error=msg)
+                    observability.capture_exception(e, stage="rank_papers", task_id=task_id)
+                    ranking_errors.append(f"papers: {msg}")
 
             # Rank news separately if available
             if news_articles:
@@ -287,12 +297,30 @@ class EnhancedDigestService:
                     task_id,
                     DigestStatus(status=TaskStatus.PROCESSING, message=f"Ranking {len(news_articles)} news articles...")
                 )
-                ranked_news = await self._rank_news_separately(news_articles, user_info, top_n_news_final)
-                logfire.info(f"Ranked news", extra={"input": len(news_articles), "output": len(ranked_news)})
+                try:
+                    ranked_news = await self._rank_news_separately(news_articles, user_info, top_n_news_final)
+                    logfire.info(f"Ranked news", extra={"input": len(news_articles), "output": len(ranked_news)})
+                except Exception as e:
+                    msg = summarize_exception(e)
+                    logfire.error("News ranking failed: {error}", error=msg)
+                    observability.capture_exception(e, stage="rank_news", task_id=task_id)
+                    ranking_errors.append(f"news: {msg}")
 
             # Check if we have any ranked content
             all_ranked = ranked_papers + ranked_news
             if not all_ranked:
+                # If both sources errored, surface an actionable message rather
+                # than the misleading "no relevant content found".
+                if ranking_errors:
+                    error_msg = "Ranking failed for all sources: " + "; ".join(ranking_errors)
+                    logfire.error("All ranking failed: {error}", error=error_msg)
+                    await self.state_manager.update_task(
+                        task_id,
+                        DigestStatus(status=TaskStatus.FAILED, message=error_msg)
+                    )
+                    if callback_url:
+                        await send_webhook_callback(callback_url, task_id, "failed", error_msg)
+                    return
                 await self._complete_task(task_id, "No relevant content found after ranking", callback_url)
                 return
 
