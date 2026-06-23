@@ -25,6 +25,7 @@ from .cache_supabase import HybridCache
 from .circuit_breaker import ServiceCircuitBreakers
 from .graceful_shutdown import GracefulShutdown, RequestTracker
 from .fetch_service import FetchSourcesService, DailySourcesManager
+from . import observability
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -40,6 +41,10 @@ else:
         logger.info(f"Logfire initialized successfully - Lightweight mode: {settings.use_lightweight}")
     except Exception as e:
         logger.exception(f"Failed to initialize logfire: {e}")
+
+# Initialize Sentry (no-op unless SENTRY_DSN is set). PII is never sent.
+if observability.init_sentry():
+    logger.info("Sentry error reporting enabled")
 
 # Global instances for connection pooling
 SUPABASE_CLIENT: Optional[Client] = None
@@ -269,6 +274,7 @@ async def safe_background_task(task_id: str, *args, **kwargs):
         )
         logger.error(f"Task {task_id} timed out after {task_timeout} seconds")
     except Exception as e:
+        observability.capture_exception(e, stage="background_task", task_id=task_id)
         await app.state.state_manager.update_task(
             task_id,
             DigestStatus(status=TaskStatus.FAILED, message=f"Task failed: {str(e)}")
@@ -291,6 +297,7 @@ async def safe_fetch_task(task_id: str, source_date: str, callback_url: str = No
         )
         logger.error(f"Fetch task {task_id} timed out after {task_timeout} seconds")
     except Exception as e:
+        observability.capture_exception(e, stage="fetch_task", task_id=task_id)
         await app.state.state_manager.update_fetch_task(
             task_id,
             "failed",

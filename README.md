@@ -64,6 +64,8 @@ Configuration is loaded from `config/.env` (see `config/.env.example`).
 - `NEWSAPI_KEY` (required only if `NEWS_ENABLED=true` and you want news results)
 - `TAVILY_API_KEY` (optional, improves news article extraction)
 - `LOGFIRE_TOKEN` (optional)
+- `SENTRY_DSN` (optional): enables backend error reporting to Sentry. Unset = disabled (no-op). No PII is sent — `send_default_pii=False` and user/request contexts are stripped before send. Requires `sentry-sdk` (declared in requirements); if absent the backend logs a warning and stays disabled.
+- `SENTRY_ENVIRONMENT` (optional, default `production`): environment tag for Sentry events
 
 ### LLM provider (OpenAI or Fireworks)
 

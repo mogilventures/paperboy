@@ -26,6 +26,9 @@ python-multipart==0.0.20
 logfire==2.8.0
 typing-extensions==4.12.2
 tenacity==9.0.0  # Add for retry logic
+# Optional error reporting. Backend no-ops unless SENTRY_DSN is set; its only
+# runtime deps (urllib3, certifi) are already in requirements.lock.txt.
+sentry-sdk==2.20.0
 
 # Pinned transitive (drift guard): logfire -> opentelemetry pulls this in, but a
 # fresh resolve once dropped it and crash-looped boot with

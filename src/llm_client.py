@@ -3,13 +3,30 @@ import json
 import time
 from typing import Any, Dict, List, Optional, Union
 from openai import AsyncOpenAI
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, RetryError
 import logfire
 from pydantic import BaseModel, Field, ValidationError
 from datetime import datetime
 
 from .config import settings
 from .models import RankedArticle, ArticleAnalysis, ContentType, DigestEmailData, DigestStats, DigestArticle, HighlightItem
+from . import observability
+
+
+def summarize_exception(exc: BaseException) -> str:
+    """Return an actionable one-line summary, unwrapping tenacity RetryError.
+
+    tenacity stringifies a failed retry as ``RetryError[<Future ... raised
+    AttributeError>]`` which hides the real cause. Pull the last attempt's
+    exception out so callback errors and logs name what actually went wrong.
+    """
+    if isinstance(exc, RetryError):
+        last = getattr(exc, "last_attempt", None)
+        inner = last.exception() if last is not None else None
+        if inner is not None:
+            return f"{type(inner).__name__}: {inner}"
+        return "RetryError with no recorded cause"
+    return f"{type(exc).__name__}: {exc}"
 
 # Structured output schemas for ranking
 class ArticleRanking(BaseModel):
@@ -142,7 +159,7 @@ class LLMClient:
                 ],
                 temperature=temperature,
             )
-            return response.choices[0].message.content
+            return self._extract_chat_content(response)
 
         # Default: Responses API. Combine system and user prompts.
         input_content = f"{system_prompt}\n\n{user_prompt}"
@@ -151,7 +168,59 @@ class LLMClient:
             input=input_content,
             temperature=temperature,
         )
-        return response.output_text
+        output_text = getattr(response, "output_text", None)
+        if not output_text or not str(output_text).strip():
+            raise ValueError(f"{self.provider} Responses API returned empty output_text")
+        return output_text
+
+    def _extract_chat_content(self, response: Any) -> str:
+        """Pull the text out of a chat-completions response defensively.
+
+        OpenAI-compatible providers vary: some omit ``choices``/``message``,
+        some return ``content=None`` (e.g. reasoning models that only fill a
+        reasoning field), and some return ``content`` as a list of parts. Each
+        case becomes a clear ValueError or a normalized string instead of the
+        opaque AttributeError that tenacity then buries inside a RetryError.
+        """
+        choices = getattr(response, "choices", None)
+        if not choices:
+            raise ValueError(f"{self.provider} chat response had no choices")
+
+        message = getattr(choices[0], "message", None)
+        if message is None:
+            raise ValueError(f"{self.provider} chat response choice had no message")
+
+        content = getattr(message, "content", None)
+        if content is None:
+            raise ValueError(f"{self.provider} chat response had message.content=None")
+
+        if isinstance(content, str):
+            return content
+
+        # Some providers return content as a list of parts (str or {type,text}).
+        if isinstance(content, list):
+            parts: List[str] = []
+            for part in content:
+                if isinstance(part, str):
+                    parts.append(part)
+                elif isinstance(part, dict):
+                    text = part.get("text") or part.get("content")
+                    if text:
+                        parts.append(str(text))
+                else:
+                    text = getattr(part, "text", None)
+                    if text:
+                        parts.append(str(text))
+            if not parts:
+                raise ValueError(
+                    f"{self.provider} chat response content list had no text parts"
+                )
+            return "".join(parts)
+
+        raise ValueError(
+            f"{self.provider} chat response content had unexpected type "
+            f"{type(content).__name__}"
+        )
 
     @retry(
         stop=stop_after_attempt(3),
@@ -500,8 +569,15 @@ News Articles:
             return ranked_articles
 
         except Exception as e:
-            logfire.error(f"Ranking failed: {str(e)}")
-            raise ValueError(f"Ranking failed: {str(e)}")
+            # Unwrap tenacity RetryError so the message names the real cause
+            # (e.g. the AttributeError from a malformed provider response)
+            # instead of the opaque "RetryError[<Future ... raised ...>]".
+            summary = summarize_exception(e)
+            logfire.error(f"Ranking failed: {summary}")
+            observability.capture_exception(
+                e, stage="ranking", content_type=content_type or "mixed"
+            )
+            raise ValueError(f"Ranking failed: {summary}")
 
     def _normalize_ranking_fields(
         self,
