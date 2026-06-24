@@ -142,6 +142,7 @@ class LLMClient:
         system_prompt: str,
         user_prompt: str,
         temperature: float,
+        max_tokens: int = 8000,
     ) -> str:
         """Issue a single completion via the configured API surface and return raw text.
 
@@ -158,6 +159,8 @@ class LLMClient:
                     {"role": "user", "content": user_prompt},
                 ],
                 temperature=temperature,
+                # reasoning models (gpt-oss) spend budget on CoT; unbounded -> empty content
+                max_tokens=max_tokens,
             )
             return self._extract_chat_content(response)
 
@@ -191,8 +194,14 @@ class LLMClient:
             raise ValueError(f"{self.provider} chat response choice had no message")
 
         content = getattr(message, "content", None)
-        if content is None:
-            raise ValueError(f"{self.provider} chat response had message.content=None")
+        if content is None or (isinstance(content, str) and not content.strip()):
+            # Reasoning models (e.g. Fireworks gpt-oss) may leave content empty and
+            # put the answer in reasoning_content. ponytail: best-effort fallback;
+            # if it isn't valid JSON, the caller's manual-parse path handles it.
+            reasoning = getattr(message, "reasoning_content", None)
+            if reasoning and str(reasoning).strip():
+                return str(reasoning)
+            raise ValueError(f"{self.provider} chat response had empty message.content and no reasoning_content")
 
         if isinstance(content, str):
             return content
@@ -236,7 +245,7 @@ class LLMClient:
         """Make LLM call with retry logic and performance monitoring."""
         start_time = time.time()
         try:
-            content = await self._raw_completion(system_prompt, user_prompt, temperature)
+            content = await self._raw_completion(system_prompt, user_prompt, temperature, max_tokens=max_tokens)
 
             # Extract content (simplified)
             if not content:
@@ -292,7 +301,7 @@ class LLMClient:
 
             # Get response text and parse JSON
             json_text = await self._raw_completion(
-                structured_system_prompt, user_prompt, temperature
+                structured_system_prompt, user_prompt, temperature, max_tokens=8000
             )
             if not json_text:
                 raise ValueError(f"Empty response from {self.provider}")

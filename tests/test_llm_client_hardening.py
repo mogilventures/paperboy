@@ -46,7 +46,7 @@ def _chat_response(content):
 def test_content_none_raises_clear_valueerror(chat_client):
     with pytest.raises(ValueError) as excinfo:
         chat_client._extract_chat_content(_chat_response(None))
-    assert "content=None" in str(excinfo.value)
+    assert "empty message.content and no reasoning_content" in str(excinfo.value)
     assert not isinstance(excinfo.value, AttributeError)
 
 
