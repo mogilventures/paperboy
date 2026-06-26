@@ -320,7 +320,7 @@ class LLMClient:
                 raise ValueError(f"Pydantic validation failed: {str(e)}")
                 
         except Exception as e:
-            logfire.warning(f"Structured output failed: {str(e)}")
+            logfire.warn(f"Structured output failed: {str(e)}")
             
             if fallback_to_manual:
                 logfire.info("Falling back to manual JSON parsing")
@@ -997,7 +997,7 @@ Content:
         
         # Log if we had to fix the date
         if correct_date not in html:
-            logfire.warning(f"LLM generated incorrect date, fixed to: {correct_date}")
+            logfire.warn(f"LLM generated incorrect date, fixed to: {correct_date}")
         
         return html
 
@@ -1290,7 +1290,7 @@ Create a cohesive HTML digest that tells a story about what's important for this
             cleaned_html = self._fix_date_in_html(cleaned_html, current_date)
 
             if not cleaned_html:
-                logfire.warning("Empty HTML response from LLM, using fallback")
+                logfire.warn("Empty HTML response from LLM, using fallback")
                 return self._create_fallback_html(summaries, user_info)
 
             return cleaned_html
@@ -1420,7 +1420,7 @@ Focus: {user_info.get('goals', 'Research')}"""
                 return highlights[:max_highlights]
 
         except Exception as e:
-            logfire.warning(f"LLM highlight generation failed, using fallback: {str(e)}")
+            logfire.warn(f"LLM highlight generation failed, using fallback: {str(e)}")
 
         # Deterministic fallback: extract from summaries directly
         highlights = []
@@ -1543,7 +1543,7 @@ Focus: {user_info.get('goals', 'Research')}"""
                     type=content_type
                 ))
             except Exception as e:
-                logfire.warning(f"Failed to create HighlightItem: {e}")
+                logfire.warn(f"Failed to create HighlightItem: {e}")
                 continue
 
         return DigestEmailData(
