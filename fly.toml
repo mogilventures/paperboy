@@ -39,6 +39,7 @@ primary_region = "ord"  # Change to your preferred region
   TOP_N_ARTICLES = "5"
   TOP_N_NEWS = "5"
   TASK_TIMEOUT = "600"
+  DIGEST_TASK_TIMEOUT = "900"
   HTTP_TIMEOUT = "60"
   NEWS_MAX_ARTICLES = "50"
   NEWS_MAX_EXTRACT = "10"
