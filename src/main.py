@@ -26,6 +26,7 @@ from .circuit_breaker import ServiceCircuitBreakers
 from .graceful_shutdown import GracefulShutdown, RequestTracker
 from .fetch_service import FetchSourcesService, DailySourcesManager
 from . import observability
+from .http_utils import send_webhook_callback
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -263,16 +264,36 @@ async def timeout_middleware(request: Request, call_next):
 async def safe_background_task(task_id: str, *args, **kwargs):
     """Wrapper for background tasks with timeout and error handling."""
     try:
-        task_timeout = settings.task_timeout
+        # Dedicated digest timeout, independent of TASK_TIMEOUT (used by fetch
+        # tasks and prone to going stale in Fly secrets).
+        task_timeout = settings.digest_task_timeout
         # Use asyncio.timeout for Python 3.11+
         async with asyncio.timeout(task_timeout):
             await app.state.digest_service.generate_digest(task_id, *args, **kwargs)
     except asyncio.TimeoutError:
+        message = f"Task timeout after {task_timeout} seconds"
         await app.state.state_manager.update_task(
             task_id,
-            DigestStatus(status=TaskStatus.FAILED, message="Task timeout")
+            DigestStatus(status=TaskStatus.FAILED, message=message)
         )
         logger.error(f"Task {task_id} timed out after {task_timeout} seconds")
+        # generate_digest add_task args = (user_info, callback_url, ...); notify
+        # the caller (n8n) of the failure instead of leaving it waiting.
+        callback_url = args[1] if len(args) > 1 else None
+        if callback_url:
+            try:
+                await send_webhook_callback(callback_url, task_id, "failed", message)
+            except Exception as callback_error:
+                observability.capture_exception(
+                    callback_error,
+                    stage="background_task_timeout_callback",
+                    task_id=task_id,
+                )
+                logger.exception(
+                    "Failed to send timeout callback for task %s: %s",
+                    task_id,
+                    callback_error,
+                )
     except Exception as e:
         observability.capture_exception(e, stage="background_task", task_id=task_id)
         await app.state.state_manager.update_task(

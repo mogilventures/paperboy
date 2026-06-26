@@ -106,7 +106,8 @@ class Settings(BaseSettings):
     news_metrics_enabled: bool = Field(default=True, validation_alias='NEWS_METRICS_ENABLED')
     
     # Timeout configuration (critical for preventing timeouts)
-    task_timeout: int = Field(default=600, validation_alias='TASK_TIMEOUT', description="Max time for digest generation in seconds")
+    task_timeout: int = Field(default=600, validation_alias='TASK_TIMEOUT', description="Max time for fetch tasks in seconds")
+    digest_task_timeout: int = Field(default=900, validation_alias='DIGEST_TASK_TIMEOUT', description="Max time for digest generation in seconds (independent of TASK_TIMEOUT, which can be a stale Fly secret)")
     request_timeout: int = Field(default=595, validation_alias='REQUEST_TIMEOUT', description="HTTP request timeout for API endpoints")
     http_timeout: int = Field(default=60, validation_alias='HTTP_TIMEOUT', description="General HTTP client timeout")
     
