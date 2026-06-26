@@ -54,7 +54,7 @@ def _inline_css_if_enabled(html: str) -> str:
         return transform(html)
     except Exception as e:
         # If inlining fails, fall back to raw HTML.
-        logfire.warning(f"CSS inlining failed, returning non-inlined HTML: {e}")
+        logfire.warn(f"CSS inlining failed, returning non-inlined HTML: {e}")
         return html
 
 
