@@ -28,6 +28,28 @@ def summarize_exception(exc: BaseException) -> str:
         return "RetryError with no recorded cause"
     return f"{type(exc).__name__}: {exc}"
 
+
+def cap_ranking_input(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Cap the candidate list before it is serialized into a ranking prompt.
+
+    The source-separated paths (rank_papers_only / rank_news_only) used to send
+    the full daily corpus (646 papers on 2026-06-27) to the LLM, blowing past
+    the model context window (141k > 131k tokens -> Fireworks 400). Enforcing the
+    same RANKING_INPUT_MAX_ARTICLES cap that the mixed path already uses keeps
+    every caller safe.
+
+    This is a deterministic article-count cap, not a token estimator. Papers and
+    news are bounded and roughly uniform in size, so count is a good enough proxy
+    for budget; switch to a char/token estimate here if item sizes ever vary wildly.
+    """
+    max_articles = settings.ranking_input_max_articles
+    if len(items) > max_articles:
+        logfire.info(
+            f"Capping ranking input from {len(items)} to {max_articles} items"
+        )
+        return items[:max_articles]
+    return items
+
 # Structured output schemas for ranking
 class ArticleRanking(BaseModel):
     """Schema for complete ranked article in structured output - matches RankedArticle structure."""
@@ -275,6 +297,10 @@ class LLMClient:
                 "temperature": temperature
             })
 
+    # TODO: a context-length 400 (prompt too long) is not retryable — retrying it
+    # 3x just wastes time and quota. cap_ranking_input() now prevents oversized
+    # prompts upstream, so this is rare; add a retry_if_exception predicate that
+    # skips non-retryable BadRequest errors if it ever recurs.
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=2, max=10)
@@ -410,6 +436,8 @@ Articles:
         top_n: int
     ) -> List[RankedArticle]:
         """Rank research papers separately based on user profile."""
+        # Cap candidates before serialization so the prompt stays within context.
+        papers = cap_ranking_input(papers)
         # Normalize author field to authors list before processing (safety check)
         for paper in papers:
             if 'author' in paper and 'authors' not in paper:
@@ -468,6 +496,8 @@ Papers:
         top_n: int
     ) -> List[RankedArticle]:
         """Rank news articles separately based on user profile."""
+        # Cap candidates before serialization so the prompt stays within context.
+        news_articles = cap_ranking_input(news_articles)
         # Normalize author field to authors list before processing
         for article in news_articles:
             if 'author' in article and 'authors' not in article:
@@ -601,11 +631,20 @@ News Articles:
         if 'reasoning' in article_data and 'score_reason' not in article_data:
             article_data['score_reason'] = article_data.pop('reasoning')
 
+        # News items often carry 'url' instead of 'abstract_url'; without this map
+        # every news article fails RankedArticle validation -> all-sources failure.
+        if not article_data.get('abstract_url') and article_data.get('url'):
+            article_data['abstract_url'] = article_data['url']
+
         # Set or infer content type
         if content_type:
             article_data['type'] = content_type
         elif infer_type and ('type' not in article_data or not article_data['type']):
             article_data['type'] = 'news' if article_data.get('subject') == 'news' else 'paper'
+
+        # News responses frequently omit 'subject' (a required field); default it.
+        if not article_data.get('subject') and article_data.get('type') == 'news':
+            article_data['subject'] = 'news'
 
     async def rank_mixed_content(
         self,
