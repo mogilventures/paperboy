@@ -24,9 +24,11 @@ primary_region = "ord"  # Change to your preferred region
   #   timeout = "10s"
 
 [[vm]]
-  memory = "4gb"
+  # Downsized 2026-07: app is async I/O-bound (~50 min of work/day, mostly LLM wait);
+  # 4gb/2cpu was 4-8x oversized and, always-on, drove the June invoice spike.
+  memory = "1gb"
   cpu_kind = "shared"
-  cpus = 2
+  cpus = 1
 
 # Environment variables (non-sensitive)
 [env]
