@@ -98,7 +98,26 @@ class Settings(BaseSettings):
     supabase_url: Optional[str] = Field(None, validation_alias='SUPABASE_URL')
     supabase_key: Optional[str] = Field(None, validation_alias='SUPABASE_KEY')
     use_supabase: bool = Field(default=True, validation_alias='USE_SUPABASE', description="Use Supabase for distributed state management (recommended for Cloud Run)")
-    
+    supabase_service_role_key: Optional[str] = Field(
+        None,
+        validation_alias='SUPABASE_SERVICE_ROLE_KEY',
+        description="Server-only Supabase key used by daily orchestration to access profiles",
+    )
+
+    # Backend-hosted daily orchestration (disabled until schema and secrets exist)
+    orchestration_enabled: bool = Field(default=False, validation_alias='ORCHESTRATION_ENABLED')
+    orchestration_hour_utc: int = Field(default=13, validation_alias='ORCHESTRATION_HOUR_UTC', ge=0, le=23)
+    orchestration_poll_seconds: float = Field(default=60, validation_alias='ORCHESTRATION_POLL_SECONDS', gt=0)
+    orchestration_catchup_hours: float = Field(default=24, validation_alias='ORCHESTRATION_CATCHUP_HOURS', gt=0)
+    orchestration_profile_interval_seconds: float = Field(default=60, validation_alias='ORCHESTRATION_PROFILE_INTERVAL_SECONDS', ge=0)
+    orchestration_max_concurrent_profiles: int = Field(default=2, validation_alias='ORCHESTRATION_MAX_CONCURRENT_PROFILES', gt=0)
+    orchestration_stale_after_minutes: int = Field(default=120, validation_alias='ORCHESTRATION_STALE_AFTER_MINUTES', gt=0)
+    resend_api_key: Optional[str] = Field(None, validation_alias='RESEND_API_KEY')
+    resend_from_address: str = Field(
+        default='Paperboy Digest <digest@paper-boy.app>',
+        validation_alias='RESEND_FROM_ADDRESS',
+    )
+
     # Caching
     news_cache_ttl: int = Field(default=3600, validation_alias='NEWS_CACHE_TTL')  # 1 hour
     

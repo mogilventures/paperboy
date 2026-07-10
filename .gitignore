@@ -45,7 +45,11 @@ tasks/
 # .project_resources
 
 notebooks/
-tests
+
+# Python bytecode and test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
 
 # Pipedream scripts (contain API keys)
 pipedream/

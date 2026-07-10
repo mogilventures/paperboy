@@ -13,13 +13,13 @@ from .models import DigestStatus, TaskStatus, ArticleAnalysis
 class TaskStateManager:
     """Task state manager using Supabase for persistence."""
     
-    def __init__(self):
+    def __init__(self, client: Client = None):
         self.supabase_url = os.getenv('SUPABASE_URL')
         self.supabase_key = os.getenv('SUPABASE_KEY')
-        if not self.supabase_url or not self.supabase_key:
+        if client is None and (not self.supabase_url or not self.supabase_key):
             raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set")
-        
-        self.client = create_client(self.supabase_url, self.supabase_key)
+
+        self.client = client or create_client(self.supabase_url, self.supabase_key)
         self.table = 'digest_tasks'
         
         logfire.info("TaskStateManager initialized with Supabase")
@@ -174,8 +174,17 @@ class TaskStateManager:
         self.client.table(self.table).update(data).eq('task_id', task_id).execute()
         logfire.info(f"Task {task_id} updated to status {status.status.value} with source_date {source_date}")
     
-    async def create_task_with_source_date(self, task_id: str, status: DigestStatus, user_info: Dict[str, Any] = None, source_date: str = None, digest_type: str = None, callback_url: str = None) -> None:
-        """Create a new task with source_date and digest_type fields."""
+    async def create_task_with_source_date(
+        self,
+        task_id: str,
+        status: DigestStatus,
+        user_info: Dict[str, Any] = None,
+        source_date: str = None,
+        digest_type: str = None,
+        callback_url: str = None,
+        user_id: str = None,
+    ) -> None:
+        """Create a task with source metadata and an optional owning user."""
         data = {
             'task_id': task_id,
             'status': status.status.value,
@@ -194,6 +203,9 @@ class TaskStateManager:
 
         if callback_url:
             data['callback_url'] = callback_url
+
+        if user_id:
+            data['user_id'] = user_id
 
         self.client.table(self.table).insert(data).execute()
         logfire.info(f"Task {task_id} created with source_date {source_date} and digest_type {digest_type}")

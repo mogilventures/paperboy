@@ -11,7 +11,15 @@ from src.main import validate_environment
 
 def _clear_llm_env(monkeypatch):
     """Start from a clean slate for the vars this function inspects."""
-    for var in ("LLM_PROVIDER", "OPENAI_API_KEY", "FIREWORKS_API_KEY", "API_KEY"):
+    for var in (
+        "LLM_PROVIDER",
+        "OPENAI_API_KEY",
+        "FIREWORKS_API_KEY",
+        "API_KEY",
+        "ORCHESTRATION_ENABLED",
+        "RESEND_API_KEY",
+        "SUPABASE_SERVICE_ROLE_KEY",
+    ):
         monkeypatch.delenv(var, raising=False)
     # Supabase disabled so the function doesn't wander into that branch.
     monkeypatch.setenv("USE_SUPABASE", "false")
@@ -59,6 +67,20 @@ def test_unknown_provider_raises(monkeypatch):
     with pytest.raises(RuntimeError) as excinfo:
         validate_environment()
     assert "anthropic" in str(excinfo.value)
+
+
+def test_enabled_orchestration_requires_backend_only_credentials(monkeypatch):
+    _clear_llm_env(monkeypatch)
+    monkeypatch.setenv("API_KEY", "k")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setenv("ORCHESTRATION_ENABLED", "true")
+
+    with pytest.raises(RuntimeError) as excinfo:
+        validate_environment()
+
+    message = str(excinfo.value)
+    assert "RESEND_API_KEY" in message
+    assert "SUPABASE_SERVICE_ROLE_KEY" in message
 
 
 def test_missing_api_key_reported(monkeypatch):
