@@ -3,6 +3,7 @@
 
 app = "paperboy-ai"
 primary_region = "ord"  # Change to your preferred region
+kill_timeout = "30s"  # Allow lifespan cancellation/checkpointing on deploy
 
 [build]
   # Uses the existing Dockerfile
@@ -45,6 +46,12 @@ primary_region = "ord"  # Change to your preferred region
   HTTP_TIMEOUT = "60"
   NEWS_MAX_ARTICLES = "50"
   NEWS_MAX_EXTRACT = "10"
+  # Apply docs/supabase_orchestration.sql and install the service-role +
+  # Resend secrets before enabling this during the n8n cutover.
+  ORCHESTRATION_ENABLED = "false"
+  ORCHESTRATION_HOUR_UTC = "13"
+  ORCHESTRATION_PROFILE_INTERVAL_SECONDS = "60"
+  ORCHESTRATION_MAX_CONCURRENT_PROFILES = "2"
 
 # Optional: Persistent volume for data storage
 # Uncomment if you want persistent local storage
@@ -58,6 +65,10 @@ primary_region = "ord"  # Change to your preferred region
 # - API_KEY (for authentication)
 # - SUPABASE_URL
 # - SUPABASE_KEY
+#
+# Required before ORCHESTRATION_ENABLED=true:
+# - SUPABASE_SERVICE_ROLE_KEY
+# - RESEND_API_KEY
 # 
 # Optional secrets (for news functionality):
 # - NEWSAPI_KEY

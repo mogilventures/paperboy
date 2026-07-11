@@ -1,3 +1,4 @@
+from datetime import date
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, HttpUrl, Field
 from .models import UserContext
@@ -53,6 +54,24 @@ class FetchSourcesResponse(BaseModel):
     message: str
     source_date: str
     status_url: Optional[str] = None
+
+class OrchestrationRunRequest(BaseModel):
+    """Request a durable daily run without a UI."""
+
+    source_date: Optional[date] = Field(
+        default=None,
+        description="Source date to process; defaults to yesterday in UTC",
+    )
+    retry_failed: bool = Field(
+        default=False,
+        description="Reclaim a failed/partial run; sent deliveries remain skipped",
+    )
+
+
+class OrchestrationRunResponse(BaseModel):
+    source_date: date
+    status: str
+
 
 class FetchStatusResponse(BaseModel):
     """Response model for checking fetch task status."""

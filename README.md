@@ -66,6 +66,7 @@ Configuration is loaded from `config/.env` (see `config/.env.example`).
 - `LOGFIRE_TOKEN` (optional)
 - `SENTRY_DSN` (optional): enables backend error reporting to Sentry. Unset = disabled (no-op). No PII is sent — `send_default_pii=False` and user/request contexts are stripped before send. Requires `sentry-sdk` (declared in requirements); if absent the backend logs a warning and stays disabled.
 - `SENTRY_ENVIRONMENT` (optional, default `production`): environment tag for Sentry events
+- `ORCHESTRATION_ENABLED` (default: `false`): enables the backend-hosted daily scheduler that replaces n8n. It requires `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, and the schema in [`docs/supabase_orchestration.sql`](docs/supabase_orchestration.sql). See the [backend orchestration rollout guide](docs/backend-orchestration.md).
 
 ### LLM provider (OpenAI or Fireworks)
 
@@ -84,6 +85,14 @@ OpenAI remains the fallback/default and its behavior is unchanged. See
 guardrails and what to compare in evals.
 
 ## API
+
+Backend orchestration adds protected `POST /admin/orchestration/run` and
+`GET /admin/orchestration/status/{source_date}` operations. They use the same
+`X-API-Key` authentication as other administrative endpoints and require
+`ORCHESTRATION_ENABLED=true`. See
+[`docs/backend-orchestration.md`](docs/backend-orchestration.md) for request
+examples, recovery behavior, and the n8n cutover plan.
+
 
 ### Authentication
 

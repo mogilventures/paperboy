@@ -41,6 +41,10 @@ class GracefulShutdown:
     async def _signal_handler(self, sig: signal.Signals) -> None:
         """Handle shutdown signal."""
         logfire.info("Received signal {signal}, initiating graceful shutdown", signal=sig.name)
+        self.initiate_shutdown()
+
+    def initiate_shutdown(self) -> None:
+        """Mark shutdown as started without replacing the server's handlers."""
         self.shutdown_event.set()
     
     @asynccontextmanager

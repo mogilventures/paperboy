@@ -5,6 +5,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from datetime import date, datetime, timedelta, timezone
 import uuid
 import asyncio
 import logfire
@@ -13,7 +14,16 @@ import os
 from typing import Dict, Any, Optional
 from supabase import create_client, Client
 
-from .api_models import GenerateDigestRequest, GenerateDigestResponse, DigestStatusResponse, FetchSourcesRequest, FetchSourcesResponse, FetchStatusResponse
+from .api_models import (
+    DigestStatusResponse,
+    FetchSourcesRequest,
+    FetchSourcesResponse,
+    FetchStatusResponse,
+    GenerateDigestRequest,
+    GenerateDigestResponse,
+    OrchestrationRunRequest,
+    OrchestrationRunResponse,
+)
 from .digest_service_enhanced import EnhancedDigestService as DigestService
 from .models import TaskStatus, DigestStatus
 from .security import validate_api_key
@@ -27,6 +37,11 @@ from .graceful_shutdown import GracefulShutdown, RequestTracker
 from .fetch_service import FetchSourcesService, DailySourcesManager
 from . import observability
 from .http_utils import send_webhook_callback
+from .orchestration import DailyDigestOrchestrator
+from .orchestration_adapters import BackendDigestGenerator, BackendSourceFetcher
+from .orchestration_repository import SupabaseOrchestrationRepository
+from .orchestration_scheduler import DailyOrchestrationScheduler
+from .resend_email import ResendEmailSender
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -90,7 +105,26 @@ def validate_environment():
             f"Unsupported LLM_PROVIDER '{provider}'. Use 'openai' or 'fireworks'."
         )
 
+    orchestration_env = os.getenv('ORCHESTRATION_ENABLED')
+    orchestration_enabled = (
+        orchestration_env.lower() == 'true'
+        if orchestration_env is not None
+        else settings.orchestration_enabled
+    )
+    orchestration_values = {
+        'RESEND_API_KEY': os.getenv('RESEND_API_KEY') or settings.resend_api_key,
+        'SUPABASE_URL': os.getenv('SUPABASE_URL') or settings.supabase_url,
+        'SUPABASE_SERVICE_ROLE_KEY': (
+            os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+            or settings.supabase_service_role_key
+        ),
+    }
+
     missing = [var for var in required_vars if not os.getenv(var)]
+    if orchestration_enabled:
+        missing.extend(
+            var for var, value in orchestration_values.items() if not value
+        )
     if missing:
         raise RuntimeError(f"Missing required environment variables: {missing}")
     
@@ -113,7 +147,8 @@ async def lifespan(app: FastAPI):
     # Initialize shutdown handler
     global SHUTDOWN_HANDLER
     SHUTDOWN_HANDLER = GracefulShutdown(timeout=int(os.getenv('SHUTDOWN_TIMEOUT', '30')))
-    SHUTDOWN_HANDLER.setup_signal_handlers()
+    # Uvicorn owns SIGTERM/SIGINT. Replacing its handlers prevents lifespan
+    # teardown from starting, so shutdown is initiated from teardown below.
     
     # Initialize Supabase state manager
     app.state.state_manager = TaskStateManager()
@@ -146,7 +181,74 @@ async def lifespan(app: FastAPI):
     app.state.digest_service.circuit_breakers = app.state.circuit_breakers
     app.state.digest_service.cache = app.state.cache
     app.state.digest_service.daily_sources_manager = app.state.daily_sources_manager
-    
+
+    # Daily orchestration is opt-in so the schema and secrets can be applied
+    # before cutover from n8n. It uses a service-role client because profiles
+    # are protected by RLS and must never be accessed with a browser key.
+    app.state.orchestrator = None
+    app.state.orchestration_repository = None
+    app.state.orchestration_client = None
+    app.state.orchestration_scheduler = None
+    app.state.orchestration_email_sender = None
+    app.state.orchestration_manual_tasks = set()
+    orchestration_scheduler_task = None
+    if settings.orchestration_enabled:
+        orchestration_client = create_client(
+            settings.supabase_url,
+            settings.supabase_service_role_key,
+        )
+        repository = SupabaseOrchestrationRepository(
+            orchestration_client,
+            stale_after_minutes=settings.orchestration_stale_after_minutes,
+        )
+        orchestration_state_manager = TaskStateManager(
+            client=orchestration_client
+        )
+        source_fetcher = BackendSourceFetcher(
+            state_manager=orchestration_state_manager,
+            fetch_service=app.state.fetch_service,
+            timeout_seconds=settings.task_timeout,
+        )
+        digest_generator = BackendDigestGenerator(
+            state_manager=orchestration_state_manager,
+            digest_service=app.state.digest_service,
+            timeout_seconds=settings.digest_task_timeout,
+        )
+        email_sender = ResendEmailSender(
+            api_key=settings.resend_api_key,
+            from_address=settings.resend_from_address,
+        )
+        orchestrator = DailyDigestOrchestrator(
+            repository=repository,
+            source_fetcher=source_fetcher,
+            digest_generator=digest_generator,
+            email_sender=email_sender,
+            profile_start_interval_seconds=(
+                settings.orchestration_profile_interval_seconds
+            ),
+            max_concurrent_profiles=(
+                settings.orchestration_max_concurrent_profiles
+            ),
+        )
+        scheduler = DailyOrchestrationScheduler(
+            orchestrator,
+            hour_utc=settings.orchestration_hour_utc,
+            poll_seconds=settings.orchestration_poll_seconds,
+            catchup_hours=settings.orchestration_catchup_hours,
+        )
+        app.state.orchestrator = orchestrator
+        app.state.orchestration_repository = repository
+        app.state.orchestration_client = orchestration_client
+        app.state.orchestration_scheduler = scheduler
+        app.state.orchestration_email_sender = email_sender
+        orchestration_scheduler_task = asyncio.create_task(
+            scheduler.run_forever(), name="daily-digest-orchestration"
+        )
+        logger.info(
+            "Backend daily orchestration enabled for %02d:00 UTC",
+            settings.orchestration_hour_utc,
+        )
+
     # Start background tasks
     cleanup_task = asyncio.create_task(cleanup_old_tasks(app))
     cache_cleanup_task = asyncio.create_task(cleanup_cache(app))
@@ -158,6 +260,8 @@ async def lifespan(app: FastAPI):
             await app.state.digest_service.fetcher.close()
         if hasattr(app.state.digest_service, 'news_fetcher'):
             await app.state.digest_service.news_fetcher.close()
+        if app.state.orchestration_email_sender:
+            await app.state.orchestration_email_sender.close()
     
     SHUTDOWN_HANDLER.register_shutdown_task(close_connections)
     
@@ -165,17 +269,28 @@ async def lifespan(app: FastAPI):
     
     # Graceful shutdown
     logger.info("Starting graceful shutdown...")
+    SHUTDOWN_HANDLER.initiate_shutdown()
+    if app.state.orchestration_scheduler:
+        app.state.orchestration_scheduler.stop()
+    orchestration_tasks_to_await = []
+    if orchestration_scheduler_task:
+        orchestration_scheduler_task.cancel()
+        orchestration_tasks_to_await.append(orchestration_scheduler_task)
+    for task in app.state.orchestration_manual_tasks:
+        task.cancel()
+        orchestration_tasks_to_await.append(task)
+    if orchestration_tasks_to_await:
+        await asyncio.gather(
+            *orchestration_tasks_to_await, return_exceptions=True
+        )
     await SHUTDOWN_HANDLER.wait_for_shutdown()
     
     # Cancel background tasks
     cleanup_task.cancel()
     cache_cleanup_task.cancel()
-    
-    try:
-        await cleanup_task
-        await cache_cleanup_task
-    except asyncio.CancelledError:
-        pass
+    await asyncio.gather(
+        cleanup_task, cache_cleanup_task, return_exceptions=True
+    )
     
     logger.info("Shutdown complete")
 
@@ -505,6 +620,63 @@ async def get_fetch_status(task_id: str) -> FetchStatusResponse:
     )
 
 
+async def _run_manual_orchestration(source_date: date, retry_failed: bool) -> None:
+    """Run a manually requested batch and retain failures in durable state."""
+    try:
+        await app.state.orchestrator.run(
+            source_date, retry_failed=retry_failed
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        observability.capture_exception(
+            exc,
+            stage="manual_orchestration",
+            source_date=source_date.isoformat(),
+        )
+        logger.exception(
+            "Manual orchestration run failed for %s", source_date.isoformat()
+        )
+
+
+@app.post(
+    "/admin/orchestration/run",
+    response_model=OrchestrationRunResponse,
+    status_code=202,
+    dependencies=[Depends(validate_api_key)],
+)
+async def run_daily_orchestration(
+    request: OrchestrationRunRequest,
+) -> OrchestrationRunResponse:
+    """Start an idempotent daily run; no n8n webhook or UI is required."""
+    if not app.state.orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestration is disabled")
+    source_date = request.source_date or (
+        datetime.now(timezone.utc) - timedelta(days=1)
+    ).date()
+    task = asyncio.create_task(
+        _run_manual_orchestration(source_date, request.retry_failed),
+        name=f"manual-orchestration-{source_date.isoformat()}",
+    )
+    app.state.orchestration_manual_tasks.add(task)
+    task.add_done_callback(app.state.orchestration_manual_tasks.discard)
+    return OrchestrationRunResponse(source_date=source_date, status="accepted")
+
+
+@app.get(
+    "/admin/orchestration/status/{source_date}",
+    dependencies=[Depends(validate_api_key)],
+)
+async def get_orchestration_status(source_date: date) -> Dict[str, Any]:
+    """Return durable run progress for operational checks."""
+    if not app.state.orchestration_repository:
+        raise HTTPException(status_code=503, detail="Orchestration is disabled")
+    run = await app.state.orchestration_repository.get_run(source_date)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Orchestration run not found")
+    return run
+
+
 @app.get("/preview-new-format/{task_id}", response_class=HTMLResponse)
 async def preview_new_format(task_id: str, api_key: str = Depends(validate_api_key)):
     """Preview the newsletter format for a completed task."""
@@ -593,6 +765,23 @@ async def readiness_check():
         checks["supabase"] = f"unhealthy: {str(e)}"
         overall_healthy = False
     
+    # Check the backend-only orchestration schema when the feature is enabled.
+    if app.state.orchestration_client:
+        try:
+            for table_name in (
+                "orchestration_runs",
+                "orchestration_deliveries",
+            ):
+                app.state.orchestration_client.table(table_name).select(
+                    "source_date"
+                ).limit(1).execute()
+            checks["orchestration"] = "healthy"
+        except Exception as e:
+            checks["orchestration"] = f"unhealthy: {str(e)}"
+            overall_healthy = False
+    else:
+        checks["orchestration"] = "disabled"
+
     # Check circuit breakers if available
     if hasattr(app.state, 'circuit_breakers') and app.state.circuit_breakers:
         try:
