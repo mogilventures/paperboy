@@ -1006,6 +1006,16 @@ class EnhancedDigestService:
         except CircuitOpenError:
             logfire.error("Papers ranking circuit breaker open, using fallback")
             return self._create_fallback_ranked(papers[:top_n], "paper")
+        except ValueError as exc:
+            logfire.error(
+                "Paper ranking response was unusable, using fallback: {error}",
+                error=summarize_exception(exc),
+            )
+            return self._create_fallback_ranked(
+                papers[:top_n],
+                "paper",
+                reason="LLM ranking unavailable - default ranking",
+            )
 
     async def _rank_news_separately(
         self,
@@ -1029,9 +1039,25 @@ class EnhancedDigestService:
         except CircuitOpenError:
             logfire.error("News ranking circuit breaker open, using fallback")
             return self._create_fallback_ranked(news_articles[:top_n], "news")
+        except ValueError as exc:
+            logfire.error(
+                "News ranking response was unusable, using fallback: {error}",
+                error=summarize_exception(exc),
+            )
+            return self._create_fallback_ranked(
+                news_articles[:top_n],
+                "news",
+                reason="LLM ranking unavailable - default ranking",
+            )
 
-    def _create_fallback_ranked(self, items: List[Dict[str, Any]], content_type: str) -> List[RankedArticle]:
-        """Create fallback ranked articles when circuit breaker is open."""
+    def _create_fallback_ranked(
+        self,
+        items: List[Dict[str, Any]],
+        content_type: str,
+        *,
+        reason: str = "Circuit breaker active - default ranking",
+    ) -> List[RankedArticle]:
+        """Create deterministic ranked articles when LLM ranking is unavailable."""
         fallback_ranked = []
         for i, item in enumerate(items):
             try:
@@ -1039,7 +1065,7 @@ class EnhancedDigestService:
                     title=item.get('title', 'Unknown'),
                     authors=item.get('authors') or ([item['author']] if item.get('author') else ['Unknown']),
                     subject=item.get('subject', 'news' if content_type == 'news' else 'cs.AI'),
-                    score_reason="Circuit breaker active - default ranking",
+                    score_reason=reason,
                     relevance_score=100 - (i * 10),  # Decreasing scores
                     abstract_url=item.get('abstract_url', item.get('url', 'https://example.com')),
                     html_url=item.get('html_url'),

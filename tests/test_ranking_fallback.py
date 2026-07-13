@@ -93,6 +93,115 @@ def test_paper_ranking_failure_still_completes_when_news_succeeds(service, monke
     assert result_arg == "<html>ok</html>"
 
 
+def test_news_only_digest_uses_deterministic_ranking_when_provider_returns_invalid_json(
+    service, monkeypatch
+):
+    async def fake_load(source_date=None):
+        return {
+            "source_date": "2026-07-12",
+            "arxiv_papers": [],
+            "news_articles": [
+                {
+                    "title": "N1",
+                    "author": "Reporter",
+                    "url": "https://example.com/news/1",
+                    "type": "news",
+                }
+            ],
+        }
+
+    monkeypatch.setattr(service, "_load_daily_sources", fake_load)
+    monkeypatch.setattr(
+        service.llm_client,
+        "rank_news_only",
+        AsyncMock(
+            side_effect=ValueError(
+                "Both structured output and manual parsing failed: Invalid JSON"
+            )
+        ),
+    )
+    monkeypatch.setattr(service, "_process_papers_parallel", AsyncMock(return_value=[]))
+
+    processed_news = []
+
+    async def process_news(items, user_info):
+        processed_news.extend(items)
+        return [{"type": "news", "title": item.title} for item in items]
+
+    monkeypatch.setattr(service, "_process_news_parallel", process_news)
+    monkeypatch.setattr(
+        service, "_generate_final_digest", AsyncMock(return_value="<html>ok</html>")
+    )
+
+    complete = AsyncMock()
+    monkeypatch.setattr(service, "_complete_task", complete)
+
+    asyncio.run(
+        service.generate_digest(
+            "task-news-only",
+            {"name": "X"},
+            source_date="2026-07-12",
+            digest_sources={"arxiv": True, "news_api": True},
+        )
+    )
+
+    assert complete.await_args.args[1] == "<html>ok</html>"
+    assert [item.title for item in processed_news] == ["N1"]
+    assert processed_news[0].score_reason == "LLM ranking unavailable - default ranking"
+
+
+def test_paper_only_digest_uses_deterministic_ranking_when_provider_returns_invalid_json(
+    service, monkeypatch
+):
+    async def fake_load(source_date=None):
+        return {
+            "source_date": "2026-07-13",
+            "arxiv_papers": [
+                {
+                    "title": "P1",
+                    "authors": ["Researcher"],
+                    "abstract_url": "https://example.com/paper/1",
+                    "type": "paper",
+                }
+            ],
+            "news_articles": [],
+        }
+
+    monkeypatch.setattr(service, "_load_daily_sources", fake_load)
+    monkeypatch.setattr(
+        service.llm_client,
+        "rank_papers_only",
+        AsyncMock(side_effect=ValueError("Invalid JSON in response")),
+    )
+
+    processed_papers = []
+
+    async def process_papers(items, user_info):
+        processed_papers.extend(items)
+        return [{"type": "paper", "title": item.title} for item in items]
+
+    monkeypatch.setattr(service, "_process_papers_parallel", process_papers)
+    monkeypatch.setattr(service, "_process_news_parallel", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        service, "_generate_final_digest", AsyncMock(return_value="<html>ok</html>")
+    )
+    complete = AsyncMock()
+    monkeypatch.setattr(service, "_complete_task", complete)
+
+    asyncio.run(
+        service.generate_digest(
+            "task-paper-only",
+            {"name": "X"},
+            source_date="2026-07-13",
+            digest_sources={"arxiv": True, "news_api": True},
+        )
+    )
+
+    assert complete.await_args.args[1] == "<html>ok</html>"
+    assert [item.title for item in processed_papers] == ["P1"]
+    assert processed_papers[0].score_reason == "LLM ranking unavailable - default ranking"
+
+
 def test_both_ranking_failures_fail_with_actionable_message(service, monkeypatch):
     _stub_sources(monkeypatch, service)
 
