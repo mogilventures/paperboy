@@ -31,8 +31,18 @@ The system addresses the information overload problem faced by researchers and t
 - **State Management**: Supabase (distributed) with in-memory fallback
 - **Reliability**: Circuit breakers, graceful shutdown, retry logic
 - **Containerization**: Docker with security hardening
-- **Deployment**: Google Cloud Run with auto-scaling
-- **Monitoring**: Logfire for production observability
+- **Deployment**: **Fly.io** (prod: `paperboy-ai.fly.dev`). Cloud Run scripts (`deploy_cloudrun.sh`, `cloudbuild.yaml`) remain in the repo but are **not** the live target.
+- **Monitoring**: Logfire for production observability; a Supabase **pg_cron** job (`digest-health-check`, 15:00 UTC) emails a Resend alert if <90% of the active cohort received a digest.
+
+> **Current architecture (2026-07).** Beyond the request/response API described below, the backend
+> **self-orchestrates the daily digest in-process** on Fly (`ORCHESTRATION_ENABLED=true`; see
+> `src/orchestration*.py` and `docs/backend-orchestration.md`). At 13:00 UTC it selects `profiles`
+> where `goals` is not null and `remove` is null, generates one digest per user (durable, idempotent
+> state in `orchestration_runs` / `orchestration_deliveries`), writes `digest_tasks` **with `user_id`
+> set directly**, updates `profiles`, and emails via Resend (`digest@paper-boy.app`). The signup
+> **welcome email** is `POST /hooks/welcome`, fired by a Supabase `profiles`-INSERT webhook (see
+> `docs/welcome-email.md`). The former **n8n** orchestration and **Pipedream** welcome workflows
+> have been retired. "Cloud Run" references elsewhere in this document are historical.
 
 ## Architecture Overview
 
