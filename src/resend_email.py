@@ -9,6 +9,7 @@ from typing import Awaitable, Callable
 import httpx
 
 from .orchestration import AmbiguousEmailDelivery, Profile
+from .welcome_email import WELCOME_SUBJECT, render_welcome_email
 
 
 class ResendEmailSender:
@@ -57,11 +58,43 @@ class ResendEmailSender:
             "subject": subject,
             "tags": [{"name": "task_id", "value": task_id}],
         }
+        idempotency_key = f"paperboy:{source_date.isoformat()}:{profile.user_id}"
+        return await self._deliver(
+            payload=payload, idempotency_key=idempotency_key
+        )
+
+    async def send_welcome(
+        self,
+        *,
+        to: str,
+        idempotency_key: str,
+        name: str | None = None,
+    ) -> str:
+        """Send the signup welcome email (formerly handled by Pipedream).
+
+        ``idempotency_key`` should be stable per recipient (e.g.
+        ``welcome:{user_id}``) so a webhook retry or a duplicate profile insert
+        does not send the email twice within Resend's idempotency window.
+        """
+        if not to:
+            raise ValueError("A recipient email is required")
+
+        payload = {
+            "from": self._from_address,
+            "to": [to],
+            "html": render_welcome_email(name=name),
+            "subject": WELCOME_SUBJECT,
+            "tags": [{"name": "type", "value": "welcome"}],
+        }
+        return await self._deliver(
+            payload=payload, idempotency_key=idempotency_key
+        )
+
+    async def _deliver(self, *, payload: dict, idempotency_key: str) -> str:
+        """POST an email to Resend with retries and a stable idempotency key."""
         headers = {
             "Authorization": f"Bearer {self._api_key}",
-            "Idempotency-Key": (
-                f"paperboy:{source_date.isoformat()}:{profile.user_id}"
-            ),
+            "Idempotency-Key": idempotency_key,
         }
 
         for attempt in range(1, self._max_attempts + 1):

@@ -66,6 +66,7 @@ Configuration is loaded from `config/.env` (see `config/.env.example`).
 - `LOGFIRE_TOKEN` (optional)
 - `SENTRY_DSN` (optional): enables backend error reporting to Sentry. Unset = disabled (no-op). No PII is sent — `send_default_pii=False` and user/request contexts are stripped before send. Requires `sentry-sdk` (declared in requirements); if absent the backend logs a warning and stays disabled.
 - `SENTRY_ENVIRONMENT` (optional, default `production`): environment tag for Sentry events
+- `WELCOME_FROM_ADDRESS` (default: `Welcome <hello@paper-boy.app>`): verified Resend sender for the signup welcome email sent by `POST /hooks/welcome`. Requires `RESEND_API_KEY`. See [`docs/welcome-email.md`](docs/welcome-email.md).
 - `ORCHESTRATION_ENABLED` (default: `false`): enables the backend-hosted daily scheduler that replaces n8n. It requires `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, and the schema in [`docs/supabase_orchestration.sql`](docs/supabase_orchestration.sql). See the [backend orchestration rollout guide](docs/backend-orchestration.md).
 
 ### LLM provider (OpenAI or Fireworks)
@@ -111,6 +112,7 @@ curl -H "X-API-Key: $API_KEY" "http://localhost:8000/health"
 | `/fetch-sources` | POST | Yes | Pre-fetch daily sources for a date |
 | `/fetch-status/{task_id}` | GET | Yes | Poll fetch status |
 | `/preview-new-format/{task_id}` | GET | Yes | Render HTML for a completed task |
+| `/hooks/welcome` | POST | Yes | Send the signup welcome email (Supabase `profiles` INSERT webhook). See [`docs/welcome-email.md`](docs/welcome-email.md) |
 | `/metrics` | GET | Yes | Metrics + circuit breaker status |
 | `/health` | GET | No | Basic health check |
 | `/ready` | GET | No | Dependency readiness check |
