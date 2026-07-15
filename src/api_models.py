@@ -1,7 +1,28 @@
 from datetime import date
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, HttpUrl, Field
+from pydantic import BaseModel, ConfigDict, HttpUrl, Field
 from .models import UserContext
+
+
+class SupabaseWebhookRecord(BaseModel):
+    """The inserted ``profiles`` row carried by a Supabase database webhook."""
+    model_config = ConfigDict(extra="ignore")
+    id: Optional[str] = None
+    user_id: Optional[str] = None
+    email: Optional[str] = None
+    name: Optional[str] = None
+
+
+class SupabaseWebhookPayload(BaseModel):
+    """Payload shape emitted by a Supabase ``INSERT`` database webhook.
+
+    See https://supabase.com/docs/guides/database/webhooks. Only ``record`` is
+    needed here; other fields are accepted and ignored.
+    """
+    model_config = ConfigDict(extra="ignore")
+    type: Optional[str] = None
+    table: Optional[str] = None
+    record: Optional[SupabaseWebhookRecord] = None
 
 class GenerateDigestRequest(BaseModel):
     """Request model for generating a digest."""

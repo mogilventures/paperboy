@@ -23,6 +23,7 @@ from .api_models import (
     GenerateDigestResponse,
     OrchestrationRunRequest,
     OrchestrationRunResponse,
+    SupabaseWebhookPayload,
 )
 from .digest_service_enhanced import EnhancedDigestService as DigestService
 from .models import TaskStatus, DigestStatus
@@ -192,6 +193,19 @@ async def lifespan(app: FastAPI):
     app.state.orchestration_email_sender = None
     app.state.orchestration_manual_tasks = set()
     orchestration_scheduler_task = None
+
+    # Signup welcome email (migrated off Pipedream). Independent of the daily
+    # orchestration feature flag: it only needs a Resend key and is triggered
+    # by a Supabase database webhook on `profiles` INSERT -> POST /hooks/welcome.
+    app.state.welcome_email_sender = None
+    if settings.resend_api_key:
+        app.state.welcome_email_sender = ResendEmailSender(
+            api_key=settings.resend_api_key,
+            from_address=settings.welcome_from_address,
+        )
+        logger.info("Welcome email sender enabled (from %s)", settings.welcome_from_address)
+    else:
+        logger.warning("RESEND_API_KEY not set; welcome email endpoint disabled")
     if settings.orchestration_enabled:
         orchestration_client = create_client(
             settings.supabase_url,
@@ -262,6 +276,8 @@ async def lifespan(app: FastAPI):
             await app.state.digest_service.news_fetcher.close()
         if app.state.orchestration_email_sender:
             await app.state.orchestration_email_sender.close()
+        if app.state.welcome_email_sender:
+            await app.state.welcome_email_sender.close()
     
     SHUTDOWN_HANDLER.register_shutdown_task(close_connections)
     
@@ -675,6 +691,51 @@ async def get_orchestration_status(source_date: date) -> Dict[str, Any]:
     if run is None:
         raise HTTPException(status_code=404, detail="Orchestration run not found")
     return run
+
+
+async def _send_welcome_email(email: str, idempotency_key: str) -> None:
+    """Deliver the welcome email in the background so the webhook returns fast."""
+    sender = app.state.welcome_email_sender
+    if sender is None:
+        return
+    try:
+        email_id = await sender.send_welcome(
+            to=email, idempotency_key=idempotency_key
+        )
+        logger.info("Welcome email sent to %s (id=%s)", email, email_id)
+    except Exception as exc:
+        observability.capture_exception(exc, stage="welcome_email")
+        logger.exception("Failed to send welcome email to %s: %s", email, exc)
+
+
+@app.post("/hooks/welcome", status_code=202, dependencies=[Depends(validate_api_key)])
+async def welcome_email_hook(
+    payload: SupabaseWebhookPayload,
+    background_tasks: BackgroundTasks,
+) -> Dict[str, Any]:
+    """Send the signup welcome email.
+
+    Triggered by a Supabase database webhook on `profiles` INSERT (replaces the
+    former Pipedream workflow). Responds immediately (the webhook has a short
+    timeout) and delivers via Resend in the background. Idempotency key
+    `welcome:{user_id}` prevents duplicate sends on webhook retries.
+    """
+    if app.state.welcome_email_sender is None:
+        raise HTTPException(
+            status_code=503, detail="Welcome email is not configured"
+        )
+
+    record = payload.record
+    email = record.email if record else None
+    if not email:
+        # Nothing to deliver; acknowledge so the webhook does not retry.
+        return {"status": "skipped", "reason": "no email in record"}
+
+    recipient_key = record.user_id or record.id or email
+    background_tasks.add_task(
+        _send_welcome_email, email, f"welcome:{recipient_key}"
+    )
+    return {"status": "accepted"}
 
 
 @app.get("/preview-new-format/{task_id}", response_class=HTMLResponse)

@@ -117,6 +117,12 @@ class Settings(BaseSettings):
         default='Paperboy Digest <digest@paper-boy.app>',
         validation_alias='RESEND_FROM_ADDRESS',
     )
+    # Sender identity for the signup welcome email (separate from the daily
+    # digest sender). Must be a verified Resend sender on the same domain.
+    welcome_from_address: str = Field(
+        default='Welcome <hello@paper-boy.app>',
+        validation_alias='WELCOME_FROM_ADDRESS',
+    )
 
     # Caching
     news_cache_ttl: int = Field(default=3600, validation_alias='NEWS_CACHE_TTL')  # 1 hour
