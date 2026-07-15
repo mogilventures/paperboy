@@ -6,6 +6,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Paperboy is an AI-powered academic paper recommendation system that ranks and analyzes arXiv papers and news articles based on user research profiles. It uses OpenAI models to provide personalized digests of relevant research papers and industry news. The system includes enhanced reliability features including circuit breakers, Supabase state management, graceful shutdown, and comprehensive error handling.
 
+> **Current architecture (2026-07).** Production runs on **Fly.io** (`paperboy-ai.fly.dev`),
+> **not** Cloud Run (the `deploy_cloudrun.sh`/`cloudbuild.yaml` paths remain but are not the live
+> target). The daily digest is **self-orchestrated in-process** on Fly (`ORCHESTRATION_ENABLED=true`;
+> see `src/orchestration*.py` and `docs/backend-orchestration.md`): at 13:00 UTC it reads `profiles`,
+> generates a digest per active user, writes `digest_tasks` **with `user_id` set directly**, updates
+> `profiles`, and emails via Resend. The old **n8n** workflows and **Pipedream** welcome workflow
+> have been **retired**. The signup **welcome email** is now `POST /hooks/welcome` (Supabase
+> `profiles`-INSERT webhook → Resend; see `docs/welcome-email.md`). A **delivery-failure monitor**
+> runs as a Supabase **pg_cron** job (`digest-health-check`, 15:00 UTC). Many "Cloud Run" mentions
+> below are historical.
+
 **Key Features:**
 
 - **Mixed Content Sources**: ArXiv papers + NewsAPI articles ranked together
@@ -243,7 +254,7 @@ Production containers implement:
 - Content extraction is prioritized for high-relevance articles
 - The archived full implementation with Playwright/crawl4ai is in `archived/`
 - **Missing Supabase Schema**: The deployment mentions `supabase_setup.sql` but this file doesn't exist - you'll need to create tables manually (including `daily_sources` and `fetch_tasks` for the fetch service)
-- **Pipedream Integration**: There's a webhook integration in `pipedream/trigger-generate-digest.js` for batch user processing
+- **~~Pipedream Integration~~ (retired 2026-07)**: The old `pipedream/trigger-generate-digest.js` webhook and the separate Pipedream welcome-email workflow are no longer used. Batch digest runs are handled in-process by the backend orchestrator (`src/orchestration*.py`); the welcome email is `POST /hooks/welcome` (see `docs/welcome-email.md`).
 
 ### Common Development Tasks
 
