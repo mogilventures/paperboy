@@ -17,6 +17,11 @@ from .state_supabase import TaskStateManager
 from .config import settings
 from .news_fetcher import NewsAPIFetcher
 from .content_extractor import TavilyExtractor
+from .link_quality import (
+    LinkAccessStatus,
+    LinkQualityOutcome,
+    emit_link_quality_summary,
+)
 from .circuit_breaker import ServiceCircuitBreakers, CircuitOpenError
 from .fetch_service import DailySourcesManager
 from .http_utils import send_webhook_callback
@@ -44,6 +49,7 @@ class EnhancedDigestService:
             self.circuit_breakers = None
         
         self.cache = None  # Will be injected from main.py
+        self.link_quality_reporter = emit_link_quality_summary
         
         # Initialize news components only if enabled
         self.news_fetcher = None
@@ -1146,24 +1152,36 @@ class EnhancedDigestService:
         
         semaphore = asyncio.Semaphore(settings.summary_max_concurrent)
         
-        async def process_single_news(article: RankedArticle) -> Dict[str, Any]:
+        async def process_single_news(
+            article: RankedArticle,
+        ) -> tuple[Dict[str, Any], LinkQualityOutcome]:
             async with semaphore:
+                quality = LinkQualityOutcome(
+                    status=LinkAccessStatus.UNKNOWN,
+                    extraction_success=False,
+                )
                 try:
-                    # Try Tavily extraction if available
+                    # Reuse the Tavily request already made for summarization to
+                    # classify accessibility. Never probe the publisher URL.
                     full_content = ""
                     if self.content_extractor:
                         try:
-                            extracted = await self.content_extractor.extract_single(str(article.abstract_url))
-                            if extracted:
-                                full_content = extracted.get('content', '')
-                                logfire.info(f"Successfully extracted content for {article.title}")
-                        except Exception as e:
-                            logfire.warn(f"Tavily extraction failed for {article.title}: {str(e)}")
-                    
+                            quality = await self.content_extractor.extract_single_with_quality(
+                                str(article.abstract_url)
+                            )
+                            if quality.extraction_success:
+                                full_content = quality.content
+                        except Exception:
+                            # Extraction observability must never prevent the
+                            # existing preview-based summary fallback.
+                            quality = LinkQualityOutcome(
+                                LinkAccessStatus.UNKNOWN, False
+                            )
+                            logfire.warn("Tavily extraction unavailable; using preview")
+
                     # Fallback to preview content if extraction failed
                     if not full_content:
                         full_content = article.score_reason  # Use score reason as preview
-                        logfire.info(f"Using preview content for {article.title}")
                     
                     # Convert RankedArticle to dict for summarization
                     article_dict = {
@@ -1184,10 +1202,10 @@ class EnhancedDigestService:
                         full_content,
                         user_info
                     )
-                    return summary
+                    return summary, quality
                 except Exception as e:
                     logfire.error(f"Failed to process news article {article.title}: {str(e)}")
-                    return {
+                    return ({
                         'title': article.title,
                         'source': getattr(article, 'source', 'Unknown'),
                         'type': 'news',
@@ -1197,16 +1215,31 @@ class EnhancedDigestService:
                         'action_item': 'Read full article',
                         'relevance_score': article.relevance_score,
                         'url': str(article.abstract_url)
-                    }
-        
+                    }, quality)
+
         # Process all news articles in parallel
         tasks = [process_single_news(article) for article in news_articles]
-        summaries = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # Filter out exceptions
-        valid_summaries = [s for s in summaries if not isinstance(s, Exception)]
+        processed = await asyncio.gather(*tasks, return_exceptions=True)
+
+        valid_summaries: List[Dict[str, Any]] = []
+        quality_outcomes: List[LinkQualityOutcome] = []
+        for item in processed:
+            if isinstance(item, Exception):
+                quality_outcomes.append(
+                    LinkQualityOutcome(LinkAccessStatus.UNKNOWN, False)
+                )
+                continue
+            summary, quality = item
+            valid_summaries.append(summary)
+            quality_outcomes.append(quality)
+
+        if quality_outcomes:
+            reporter = getattr(
+                self, "link_quality_reporter", emit_link_quality_summary
+            )
+            reporter(quality_outcomes)
         logfire.info(f"Processed {len(valid_summaries)} news summaries")
-        
+
         return valid_summaries
 
     async def _generate_final_digest(

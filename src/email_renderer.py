@@ -36,6 +36,9 @@ def _get_env() -> Environment:
         # Make theme tokens available to all templates/macros.
         _env.globals["theme"] = THEME
         logfire.info(f"Initialized Jinja2 environment with templates from: {TEMPLATES_DIR}")
+    _env.globals["feedback_cta_url"] = (
+        settings.feedback_form_url if settings.feedback_cta_enabled else None
+    )
     return _env
 
 

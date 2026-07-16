@@ -64,6 +64,15 @@ class Settings(BaseSettings):
         validation_alias="INLINE_EMAIL_CSS",
         description="Inline CSS into rendered email HTML for better client compatibility"
     )
+    feedback_cta_enabled: bool = Field(
+        default=True,
+        validation_alias="FEEDBACK_CTA_ENABLED",
+        description="Show the temporary Tally feedback CTA in new digest HTML",
+    )
+    feedback_form_url: str = Field(
+        default="https://tally.so/r/A7G02o",
+        validation_alias="FEEDBACK_FORM_URL",
+    )
 
     logfire_token: Optional[str] = Field(default=None, validation_alias='LOGFIRE_TOKEN', description="Logfire token for monitoring")
 

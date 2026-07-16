@@ -67,6 +67,7 @@ Configuration is loaded from `config/.env` (see `config/.env.example`).
 - `SENTRY_DSN` (optional): enables backend error reporting to Sentry. Unset = disabled (no-op). No PII is sent — `send_default_pii=False` and user/request contexts are stripped before send. Requires `sentry-sdk` (declared in requirements); if absent the backend logs a warning and stays disabled.
 - `SENTRY_ENVIRONMENT` (optional, default `production`): environment tag for Sentry events
 - `WELCOME_FROM_ADDRESS` (default: `Welcome <hello@paper-boy.app>`): verified Resend sender for the signup welcome email sent by `POST /hooks/welcome`. Requires `RESEND_API_KEY`. See [`docs/welcome-email.md`](docs/welcome-email.md).
+- `FEEDBACK_CTA_ENABLED` (default: `true`): show the temporary Tally feedback CTA in newly rendered digest HTML. Set `false` after the feedback window. `FEEDBACK_FORM_URL` overrides the default Tally URL. See [`docs/link-quality-observability.md`](docs/link-quality-observability.md).
 - `ORCHESTRATION_ENABLED` (default: `false`): enables the backend-hosted daily scheduler that replaces n8n. It requires `SUPABASE_SERVICE_ROLE_KEY`, `RESEND_API_KEY`, and the schema in [`docs/supabase_orchestration.sql`](docs/supabase_orchestration.sql). See the [backend orchestration rollout guide](docs/backend-orchestration.md).
 
 ### LLM provider (OpenAI or Fireworks)

@@ -1,11 +1,22 @@
 import asyncio
-from typing import List, Dict, Any, Optional
+from datetime import date, datetime, timezone
+from typing import Awaitable, Callable, List, Dict, Any, Optional
+import httpx
 import logfire
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from .config import settings
 from .metrics import NewsMetrics
 from .http_utils import create_http_client
+from .link_quality import (
+    LinkAccessStatus,
+    LinkQualityOutcome,
+    classify_tavily_result,
+)
+
+def _utc_today() -> date:
+    return datetime.now(timezone.utc).date()
+
 
 class ContentExtractionError(Exception):
     """Content extraction failed"""
@@ -14,16 +25,27 @@ class ContentExtractionError(Exception):
 class TavilyExtractor:
     """Extracts full content with rate limiting and batch processing."""
     
-    def __init__(self):
+    def __init__(
+        self,
+        client: httpx.AsyncClient | None = None,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        today: Callable[[], date] = _utc_today,
+    ):
         if not settings.tavily_api_key:
             raise ValueError("Tavily API key not configured")
-        
+
         self.api_key = settings.tavily_api_key
         self.base_url = "https://api.tavily.com/extract"
         self.semaphore = asyncio.Semaphore(settings.extract_max_concurrent)
         self._request_count = 0
         self._request_limit = 100  # Assumed daily limit
-        self.client = create_http_client(read_timeout=settings.extract_timeout or 25.0)
+        self.client = client or create_http_client(
+            read_timeout=settings.extract_timeout or 25.0
+        )
+        self._owns_client = client is None
+        self._sleep = sleep
+        self._today = today
+        self._rate_limited_on: date | None = None
     
     @NewsMetrics.track_content_extraction
     async def extract_articles(
@@ -86,18 +108,81 @@ class TavilyExtractor:
         return result
     
     async def extract_single(self, url: str) -> Optional[Dict[str, Any]]:
-        """Extract content for a single URL with circuit breaker protection."""
-        if self._request_count >= self._request_limit:
-            logfire.warn("Tavily request limit reached, returning None")
+        """Backward-compatible content extraction for callers not using quality data."""
+        outcome = await self.extract_single_with_quality(url)
+        if not outcome.extraction_success:
             return None
-        
-        try:
-            content = await self._extract_single(url)
-            self._request_count += 1
-            return {'content': content, 'extraction_success': True}
-        except Exception as e:
-            logfire.error(f"Failed to extract content for {url}: {str(e)}")
-            return None
+        return {"content": outcome.content, "extraction_success": True}
+
+    async def extract_single_with_quality(self, url: str) -> LinkQualityOutcome:
+        """Extract and classify one link from a single Tavily request.
+
+        Classification consumes only the response already needed for summary
+        generation. It never probes the publisher URL and never logs the URL,
+        title, body, or raw provider error.
+        """
+        if self._rate_limited_on == self._today():
+            return LinkQualityOutcome(LinkAccessStatus.UNKNOWN, False)
+
+        for attempt in range(2):
+            try:
+                response = await self.client.post(
+                    self.base_url,
+                    json={
+                        "api_key": self.api_key,
+                        "urls": [url],
+                        "include_images": False,
+                        "include_links": False,
+                        "include_formatting": False,
+                    },
+                )
+                self._request_count += 1
+
+                # Preserve one bounded retry for transient provider failures.
+                # Deterministic target failures (including failed_results) are
+                # classified from this response and never fetched again.
+                if (response.status_code == 429 or response.status_code >= 500) and attempt == 0:
+                    await self._sleep(1)
+                    continue
+                if response.status_code == 429:
+                    self._rate_limited_on = self._today()
+                response.raise_for_status()
+                data = response.json()
+                if not isinstance(data, dict):
+                    return LinkQualityOutcome(LinkAccessStatus.UNKNOWN, False)
+
+                results = data.get("results") or []
+                if not isinstance(results, list):
+                    return LinkQualityOutcome(LinkAccessStatus.UNKNOWN, False)
+                content = ""
+                if results:
+                    first = results[0]
+                    if not isinstance(first, dict):
+                        return LinkQualityOutcome(LinkAccessStatus.UNKNOWN, False)
+                    content = first.get("raw_content", "") or first.get("content", "")
+                    if not isinstance(content, str):
+                        content = ""
+
+                failed_results = data.get("failed_results") or []
+                failure_error = None
+                if isinstance(failed_results, list) and failed_results:
+                    first_failure = failed_results[0]
+                    if isinstance(first_failure, dict):
+                        failure_error = str(first_failure.get("error") or "")
+
+                return classify_tavily_result(
+                    content=content,
+                    failure_error=failure_error,
+                )
+            except httpx.TransportError:
+                if attempt == 0:
+                    await self._sleep(1)
+                    continue
+            except (httpx.HTTPStatusError, ValueError, TypeError):
+                pass
+            return LinkQualityOutcome(LinkAccessStatus.UNKNOWN, False)
+
+        return LinkQualityOutcome(LinkAccessStatus.UNKNOWN, False)
     
     async def _batch_extract(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Extract articles in batches."""
@@ -187,5 +272,6 @@ class TavilyExtractor:
         return articles
     
     async def close(self):
-        """Close the HTTP client."""
-        await self.client.aclose()
+        """Close the internally owned HTTP client."""
+        if self._owns_client:
+            await self.client.aclose()
