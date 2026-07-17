@@ -4,6 +4,7 @@
 {% from "components/section_title.jinja" import section_title %}
 {% from "components/article.jinja" import render_article %}
 {% from "components/footer.jinja" import render_footer %}
+{% from "components/feedback_cta.jinja" import render_feedback_cta %}
 
 {% block title %}Paperboy Digest - {{ date }}{% endblock %}
 
@@ -71,5 +72,8 @@
     </table>
   {% endif %}
 
+  {% if feedback_cta_url %}
+    {{ render_feedback_cta(feedback_cta_url) }}
+  {% endif %}
   {{ render_footer(stats) }}
 {% endblock %}
