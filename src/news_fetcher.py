@@ -280,7 +280,6 @@ class NewsAPIFetcher:
             'sortBy': settings.news_sort_by,
             'searchIn': settings.news_search_in,
             'pageSize': min(page_size, 100),
-            'apiKey': self.api_key
         }
         
         # Add optional filters
@@ -298,7 +297,13 @@ class NewsAPIFetcher:
             "api_url": f"{self.base_url}?q={query}&from={from_date}&to={to_date}"
         })
         
-        response = await self.client.get(self.base_url, params=params)
+        # NewsAPI accepts X-Api-Key authentication. Keep credentials out of
+        # the URL so HTTP access logs and provider traces cannot expose them.
+        response = await self.client.get(
+            self.base_url,
+            params=params,
+            headers={"X-Api-Key": self.api_key},
+        )
         
         # Handle rate limiting
         if response.status_code == 429:

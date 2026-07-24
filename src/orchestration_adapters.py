@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from datetime import date
 from typing import Any
 
 from .models import DigestStatus, TaskStatus
 from .orchestration import GeneratedDigest, Profile
+
+logger = logging.getLogger(__name__)
 
 
 class BackendSourceFetcher:
@@ -42,9 +45,19 @@ class BackendSourceFetcher:
         }
         # The existing-source fast path returns before FetchSourcesService
         # updates its task record, so make completion explicit and idempotent.
-        await self._state_manager.update_fetch_task(
-            task_id, "completed", result=counts
-        )
+        # This tracking checkpoint is nonessential once valid source counts
+        # have been returned; a transient database failure must not discard a
+        # successful fetch and abort every digest in the batch.
+        try:
+            await self._state_manager.update_fetch_task(
+                task_id, "completed", result=counts
+            )
+        except Exception:
+            logger.warning(
+                "Could not checkpoint completed source fetch; continuing with fetched sources",
+                exc_info=True,
+                extra={"task_id": task_id, "source_date": source_date_text},
+            )
         return counts
 
 
