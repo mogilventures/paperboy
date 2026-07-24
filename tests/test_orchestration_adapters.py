@@ -63,6 +63,22 @@ def test_backend_source_fetcher_completes_tracking_for_cached_sources() -> None:
     )
 
 
+def test_backend_source_fetcher_does_not_discard_sources_when_tracking_fails() -> None:
+    class FailingCompletionStateManager(RecordingFetchStateManager):
+        async def update_fetch_task(self, *args, **kwargs) -> None:
+            raise RuntimeError("tracking gateway timeout")
+
+    fetcher = BackendSourceFetcher(
+        state_manager=FailingCompletionStateManager(),
+        fetch_service=ExistingSourceService(),
+        timeout_seconds=30,
+    )
+
+    counts = asyncio.run(fetcher.fetch(date(2026, 7, 9)))
+
+    assert counts == {"arxiv_count": 8, "news_count": 3}
+
+
 class RecordingDigestService:
     def __init__(self) -> None:
         self.calls = []
