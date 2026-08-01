@@ -16,6 +16,25 @@ from .models import TaskStatus
 from .http_utils import send_webhook_callback
 
 
+_TRANSIENT_SOURCE_STORAGE_ERRORS = (
+    "57014",
+    "statement timeout",
+    "gateway timeout",
+    "timed out",
+    "timeout",
+    "bad gateway",
+    "service unavailable",
+    "sslv3_alert_bad_record_mac",
+    "ssl",
+    "readerror",
+)
+
+
+def _is_transient_source_storage_error(error: Exception) -> bool:
+    error_text = str(error).lower()
+    return any(marker in error_text for marker in _TRANSIENT_SOURCE_STORAGE_ERRORS)
+
+
 class FetchSourcesService:
     """Service for fetching and storing daily sources."""
     
@@ -264,7 +283,8 @@ class FetchSourcesService:
                 "updated_at": datetime.now().isoformat()
             }
             
-            # Retry logic for SSL errors with exponential backoff
+            # This update is idempotent and occurs before any digest delivery,
+            # so transient database/network failures are safe to retry.
             max_retries = 5
             for attempt in range(max_retries):
                 try:
@@ -272,17 +292,24 @@ class FetchSourcesService:
                     loop = asyncio.get_event_loop()
                     await loop.run_in_executor(
                         None,
-                        lambda: self.supabase_client.table('daily_sources').update(data).eq('source_date', source_date).execute()
+                        lambda: self.supabase_client.table('daily_sources')
+                        .update(data, returning="minimal")
+                        .eq('source_date', source_date)
+                        .execute()
                     )
                     break
                 except Exception as e:
                     error_str = str(e)
-                    if ("SSLV3_ALERT_BAD_RECORD_MAC" in error_str or 
-                        "SSL" in error_str or 
-                        "ReadError" in error_str) and attempt < max_retries - 1:
+                    if (
+                        _is_transient_source_storage_error(e)
+                        and attempt < max_retries - 1
+                    ):
                         wait_time = 2 ** attempt  # Exponential backoff: 1, 2, 4, 8 seconds
-                        logfire.info(f"SSL/Network error on attempt {attempt + 1}, retrying in {wait_time}s...", 
-                                   extra={"error": error_str, "attempt": attempt + 1})
+                        logfire.warn(
+                            f"Transient source storage error on attempt {attempt + 1}; "
+                            f"retrying in {wait_time}s",
+                            extra={"error": error_str, "attempt": attempt + 1},
+                        )
                         await asyncio.sleep(wait_time)
                         continue
                     raise
